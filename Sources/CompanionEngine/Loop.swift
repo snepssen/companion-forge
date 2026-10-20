@@ -8,8 +8,9 @@ public enum LoopEvent: Sendable {
     case heard(String)
     /// What the memory brought up for the turn being drafted.
     case recalled(Recollection)
-    /// The voice starts saying `words` at `start`, on `Duplex.now`'s clock.
-    case saying(String, words: [SpokenWord], start: Double)
+    /// The voice starts saying this at `start`, on `Duplex.now`'s clock,
+    /// with these mouth shapes.
+    case saying(String, mouth: [VisemeSpan], start: Double)
     /// The voice was cut off at this time.
     case hushed(at: Double)
     /// A reply, all of it or what was said before it was cut off.
@@ -58,7 +59,7 @@ public actor Loop {
     struct Reply {
         var id = 0
         var person = ""
-        var held: [(text: String, samples: [Float])] = []
+        var held: [(text: String, samples: [Float], mouth: [VisemeSpan]?)] = []
         var times = DraftTimes()
         var started = 0.0
         var said: [Said] = []
@@ -224,17 +225,18 @@ public actor Loop {
     private func speak(_ sentence: String, _ id: Int) async {
         guard reply.id == id, !Task.isCancelled else { return }
         let voice = voice
-        guard let samples = try? await Task.detached(operation: { try voice.speak(sentence) }).value,
+        guard let (samples, mouth) = try? await Task.detached(operation: { try voice.speakTimed(sentence) }).value,
               !samples.isEmpty, reply.id == id, !Task.isCancelled
         else { return }
         if reply.times.firstVoice == 0 { reply.times.firstVoice = Duplex.now - reply.started }
-        if reply.committed { say(sentence, samples) } else { reply.held.append((sentence, samples)) }
+        if reply.committed { say(sentence, samples, mouth) } else { reply.held.append((sentence, samples, mouth)) }
     }
 
-    private func say(_ sentence: String, _ samples: [Float]) {
+    private func say(_ sentence: String, _ samples: [Float], _ mouth: [VisemeSpan]?) {
         let (start, end) = audio.play(samples)
         reply.said.append(Said(text: sentence, start: start, end: end))
-        emit(.saying(sentence, words: SpokenWord.estimate(sentence, duration: end - start), start: start))
+        emit(.saying(sentence, mouth: mouth ?? Visemes.timeline(SpokenWord.estimate(sentence, duration: end - start)),
+                     start: start))
         emit(.mood(Tone.isCheerful(sentence) ? .cheerful : .speaking))
     }
 
@@ -246,7 +248,7 @@ public actor Loop {
         emit(.heard(reply.person))
         emit(.timing(taker.model))
         if reply.held.isEmpty { emit(.mood(.thinking)) }
-        for (sentence, samples) in reply.held { say(sentence, samples) }
+        for (sentence, samples, mouth) in reply.held { say(sentence, samples, mouth) }
         reply.held = []
     }
 
@@ -313,14 +315,14 @@ public actor Loop {
     public func interject(_ text: String) async -> Bool {
         guard taker.phase == .waiting else { return false }
         let voice = voice
-        guard let samples = try? await Task.detached(operation: { try voice.speak(text) }).value, !samples.isEmpty,
-              taker.speakUnprompted(at: Double(processed) / 16_000)
+        guard let (samples, mouth) = try? await Task.detached(operation: { try voice.speakTimed(text) }).value,
+              !samples.isEmpty, taker.speakUnprompted(at: Double(processed) / 16_000)
         else { return false }
         draft?.cancel()
         reply = Reply(id: reply.id + 1)
         reply.committed = true
         reply.written = true
-        say(text, samples)
+        say(text, samples, mouth)
         return true
     }
 

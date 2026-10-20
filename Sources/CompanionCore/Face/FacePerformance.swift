@@ -96,9 +96,9 @@ public enum Visemes {
         return collapsed
     }
 
-    /// `(start, end, viseme)` covering every word, in order.
-    static func timeline(_ words: [SpokenWord], minimumHold: Double = 0.055) -> [(Double, Double, Viseme)] {
-        var spans: [(Double, Double, Viseme)] = []
+    /// Spans covering every word, in order, shared out by spelling.
+    public static func timeline(_ words: [SpokenWord], minimumHold: Double = 0.055) -> [VisemeSpan] {
+        var spans: [VisemeSpan] = []
         for word in words {
             let end = max(word.end, word.start + minimumHold)
             var sequence = self.sequence(word.text)
@@ -113,31 +113,32 @@ public enum Visemes {
             var cursor = word.start
             for (viseme, weight) in sequence {
                 let step = available * weight / (total == 0 ? 1 : total)
-                spans.append((cursor, cursor + step, viseme))
+                spans.append(VisemeSpan(cursor, cursor + step, viseme))
                 cursor += step
             }
         }
-        return spans.sorted { $0.0 < $1.0 }
+        return spans.sorted { $0.start < $1.start }
     }
 
     /// Mouth keys: one at the centre of each articulation, none inside a
     /// phrase so the mouth travels straight on, a ready position across a
     /// longer gap, and rest at the end.
-    public static func keys(_ words: [SpokenWord]) -> [(time: Double, mouth: Mouth)] {
-        let spans = timeline(words)
+    public static func keys(_ words: [SpokenWord]) -> [(time: Double, mouth: Mouth)] { keys(timeline(words)) }
+
+    public static func keys(_ spans: [VisemeSpan]) -> [(time: Double, mouth: Mouth)] {
         guard let first = spans.first else { return [] }
         let rest = Viseme.rest.mouth
-        var keys: [(time: Double, mouth: Mouth)] = [(max(0, first.0 - anticipate), rest)]
+        var keys: [(time: Double, mouth: Mouth)] = [(max(0, first.start - anticipate), rest)]
         for (index, span) in spans.enumerated() {
-            keys.append(((span.0 + span.1) / 2, span.2.mouth))
+            keys.append(((span.start + span.end) / 2, span.viseme.mouth))
             guard index + 1 < spans.count else {
-                keys.append((span.1 + release, rest))
+                keys.append((span.end + release, rest))
                 continue
             }
             let following = spans[index + 1]
-            if following.0 - span.1 > glideGap {
-                keys.append((span.1 + release, betweenWords))
-                keys.append((following.0 - anticipate, betweenWords))
+            if following.start - span.end > glideGap {
+                keys.append((span.end + release, betweenWords))
+                keys.append((following.start - anticipate, betweenWords))
             }
         }
         return keys.sorted { $0.time < $1.time }
@@ -310,9 +311,14 @@ public struct FacePerformance: Sendable {
         changed = time
     }
 
-    /// The voice starts saying `words` at `start`.
+    /// The voice starts saying `words` at `start`, timed by their spelling.
     public mutating func say(_ words: [SpokenWord], at start: Double) {
-        let new = Visemes.keys(words).map { (time: $0.time + start, mouth: $0.mouth) }
+        say(Visemes.timeline(words), at: start)
+    }
+
+    /// The voice starts saying these mouth shapes at `start`.
+    public mutating func say(_ shapes: [VisemeSpan], at start: Double) {
+        let new = Visemes.keys(shapes).map { (time: $0.time + start, mouth: $0.mouth) }
         guard let first = new.first, let last = new.last else { return }
         keys.removeAll { $0.time < start - 30 || $0.time >= first.time }
         keys += new

@@ -1,3 +1,4 @@
+import CompanionCore
 import Foundation
 import VoiceCore
 
@@ -47,25 +48,47 @@ public final class Voice: @unchecked Sendable {
 
     /// Mono samples at `sampleRate`, peak-normalised to 0.9.
     public func speak(_ text: String, pace: Double = 1) throws -> [Float] {
+        try speakTimed(text, pace: pace).samples
+    }
+
+    /// The graph's own rounded duration of each id, in frames, where the
+    /// export kept it (voice-forge's voices do; the name is the exporter's).
+    static let framesOutput = "/Ceil_output_0"
+
+    /// Samples, and the mouth shapes timed by how long the voice actually
+    /// spent on each phoneme. The mouth is nil for the polyglot voice, whose
+    /// layout differs, and for a graph without durations: the face then times
+    /// the words by their spelling.
+    public func speakTimed(_ text: String, pace: Double = 1) throws -> (samples: [Float], mouth: [VisemeSpan]?) {
         lock.lock()
         defer { lock.unlock() }
         let inference = model.config.inference
         var scale = inference.length_scale
         let ids: [Int]
+        var symbols: [Character]?
         if let polyglot = model.config.polyglot {
             ids = try polyglotIDs(text, speaking)
             scale *= polyglot.length_scale?[speaking] ?? 1
         } else {
-            ids = model.ids(try phonemizer(model.config.espeak.voice).phonemize(text))
+            let phonemes = try phonemizer(model.config.espeak.voice).phonemize(text)
+            ids = model.ids(phonemes)
+            let map = model.config.phoneme_id_map
+            symbols = Phonemes.layout(phonemes) { map[String($0)]?.count ?? 0 }
         }
-        guard ids.count > 3 else { return [] }
-        var samples = try model.infer(ids, noiseScale: inference.noise_scale, lengthScale: scale / pace,
-                                      noiseW: inference.noise_w).samples
+        guard ids.count > 3 else { return ([], nil) }
+        let result = try model.infer(ids, noiseScale: inference.noise_scale, lengthScale: scale / pace,
+                                     noiseW: inference.noise_w, extraOutputs: [Self.framesOutput])
+        var samples = result.samples
         if let peak = samples.map(abs).max(), peak > 1e-8 {
             let gain = 0.9 / peak
             for i in samples.indices { samples[i] *= gain }
         }
-        return samples
+        let mouth = symbols.flatMap { symbols in
+            result.extra[Self.framesOutput].flatMap {
+                Phonemes.spans(symbols, frames: $0, seconds: Double(samples.count) / sampleRate)
+            }
+        }
+        return (samples, mouth)
     }
 
     /// Polyphon's ids for `text` in `language`, without speaking it.

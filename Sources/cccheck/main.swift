@@ -293,6 +293,25 @@ check("history is kept whole up to its limit", Window.trim(Window.kept) == 0)
 check("then trimmed by two steps", Window.trim(Window.kept + 1) == Window.step * 2)
 check("which leaves what is shown as it was", Window.shown(Window.kept + 1) == Window.shown(Window.kept + 1 - Window.trim(Window.kept + 1)))
 
+// MARK: lip sync
+
+check("lips close for m, b and p", Phonemes.viseme("m") == .mm && Phonemes.viseme("b") == .mm && Phonemes.viseme("p") == .mm)
+check("vowels open as they sound", Phonemes.viseme("æ") == .ah && Phonemes.viseme("u") == .oo && Phonemes.viseme("i") == .ee)
+check("t, k and stress don't show", Phonemes.viseme("t") == nil && Phonemes.viseme("k") == nil && Phonemes.viseme("ˈ") == nil)
+let laid = Phonemes.layout("mˈæt?") { $0 == "?" ? 0 : 1 }
+check("laid out as Piper lays out ids", laid == ["^", "_", "m", "_", "ˈ", "_", "æ", "_", "t", "_", "$"])
+check("a combining mark is a symbol of its own", Phonemes.layout("a\u{0303}") { _ in 1 }.count == 2 + 2 * 2 + 1)
+let mouthSpans = Phonemes.spans(laid, frames: [2, 1, 3, 1, 1, 0, 4, 1, 2, 1, 2], seconds: 1.8)
+check("timed by the voice's own frames", mouthSpans.map { spans in
+    spans.count == 2 && spans[0].viseme == .mm && near(spans[0].start, 0.3, 1e-9) && near(spans[0].end, 0.7, 1e-9)
+        && spans[1].viseme == .ah && near(spans[1].start, 0.8, 1e-9) && near(spans[1].end, 1.3, 1e-9)
+} ?? false)
+check("frames that don't line up are not used", Phonemes.spans(laid, frames: [1, 2], seconds: 1) == nil)
+var lipping = FacePerformance(origin: 0)
+lipping.say([VisemeSpan(0.0, 0.2, .mm), VisemeSpan(0.2, 0.6, .ah)], at: 10)
+check("the mouth is shut on m and open on ah", lipping.pose(at: 10.1).face.mouth.aperture < 0.2
+    && lipping.pose(at: 10.4).face.mouth.aperture > 0.8)
+
 // MARK: motion
 
 let gaze = Gaze()

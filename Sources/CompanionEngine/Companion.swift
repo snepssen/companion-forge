@@ -269,10 +269,11 @@ public final class Companion {
         }
         guard blurt == nil, let voice, phase == .ready || phase == .needsModel else { return }
         do {
-            let samples = try await Task.detached { try voice.speak(complaint) }.value
+            let (samples, mouth) = try await Task.detached { try voice.speakTimed(complaint) }.value
             let blurt = try Blurt(samples, rate: voice.sampleRate, spatial: spatialVoice)
             self.blurt = blurt
-            face.say(SpokenWord.estimate(complaint, duration: blurt.end - blurt.start), at: blurt.start)
+            face.say(mouth ?? Visemes.timeline(SpokenWord.estimate(complaint, duration: blurt.end - blurt.start)),
+                     at: blurt.start)
             face.set(.speaking, at: blurt.start)
             append(.companion, complaint)
             try? await Task.sleep(for: .seconds(blurt.end - Duplex.now + 0.2))
@@ -349,8 +350,8 @@ public final class Companion {
             recalled = recollection.notes
         case let .heard(text):
             append(.person, text)
-        case let .saying(text, words, start):
-            face.say(words, at: start)
+        case let .saying(text, mouth, start):
+            face.say(mouth, at: start)
             if let index = lines.lastIndex(where: { $0.id == replyLine }) {
                 lines[index].text += " " + text
                 lines[index].at = Date()

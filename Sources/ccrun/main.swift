@@ -13,6 +13,7 @@
 //   ccrun --memory              earlier conversations written up, then recalled
 //   ccrun --icon <file.png>     the app icon, 1024 px
 //   ccrun --spatial-check       the spatial voice's audio graph, run silently
+//   ccrun --lipsync "text"      the mouth from the voice's phoneme timings, beside the spelling estimate
 //   ccrun --recall              how the embedder ranks notes, for the thresholds
 //   ccrun --long [--anticipate] a long conversation: prompt re-reading and first-word times
 //
@@ -312,6 +313,30 @@ func spatialCheck() async throws {
     }
     _ = try Duplex(sampleRate: voice.sampleRate, echoCancellation: true, spatial: true)
     print("the echo-cancelled engine takes the spatial stage")
+}
+
+/// The mouth for a sentence, from the voice's own phoneme timings, beside
+/// what the spelling estimate made of it.
+func lipsync(_ text: String) throws {
+    guard let voiceURL = Resources.voice, let espeak = Resources.espeakData else { print("no voice"); return }
+    let voice = try Voice(model: voiceURL, espeakData: espeak)
+    let (samples, mouth) = try voice.speakTimed(text)
+    let seconds = Double(samples.count) / voice.sampleRate
+    print(String(format: "\"%@\", %.2f s", text, seconds))
+    func show(_ spans: [VisemeSpan]) -> String {
+        spans.map { String(format: "%@ %.2f-%.2f", $0.viseme.rawValue, $0.start, $0.end) }.joined(separator: ", ")
+    }
+    if let mouth {
+        print("  from the voice:  \(show(mouth))")
+    } else {
+        print("  the voice gave no timings")
+    }
+    print("  from spelling:   \(show(Visemes.timeline(SpokenWord.estimate(text, duration: seconds))))")
+}
+
+if let text = option("--lipsync") {
+    try lipsync(text)
+    exit(0)
 }
 
 if CommandLine.arguments.contains("--spatial-check") || option("--spatial-check") != nil {
