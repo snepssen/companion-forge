@@ -5,6 +5,7 @@
 //
 //   ccrun                       a short conversation, with an interruption
 //   ccrun --echo 0.3            the same with far more echo leaking through
+//   ccrun --shake               with the phone shaken between turns
 //   ccrun --model qwen3-4b-instruct-2507-4bit
 //   ccrun --faces <folder>      the face in each mood and some visemes, as PNGs
 //         [--style smooth] [--colour magenta] [--hearing 0.05]   (also for --window)
@@ -91,6 +92,13 @@ func faces(into folder: URL) throws {
         performance.set(mood, at: 0)
         try write("mood-\(mood.rawValue)", performance.pose(at: 2))
     }
+    var looking = FacePerformance(origin: 0)
+    for (index, at) in [3.0, 9.0, 17.0].enumerated() {
+        try write("gaze-idle-\(index + 1)", looking.pose(at: at))
+    }
+    looking.set(.thinking, at: 0)
+    try write("gaze-thinking", looking.pose(at: 2))
+    try write("shaken", Felt(offset: Point(-0.06, 0.03), tilt: -9, shaken: 1).apply(to: FacePerformance(origin: 0).pose(at: 2)))
     for viseme in [Viseme.ah, .oo, .ee] {
         let face = Mood.speaking.expression.face
         try write("viseme-\(viseme.rawValue)",
@@ -104,6 +112,7 @@ func window(into file: URL) async throws {
     UserDefaults.standard.set(look().style.rawValue, forKey: "visorStyle")
     UserDefaults.standard.set(look().colour.rawValue, forKey: "visorColour")
     let companion = Companion()
+    companion.listensWhenReady = false  // nobody here to listen to
     await companion.prepare()
     print("phase: \(companion.phase)")
     let view = ContentView(companion: companion).frame(width: 760, height: 620)
@@ -489,6 +498,25 @@ enum Report {
 
 let running = Task { await loop.run() }
 
+// Shaking, as the phone's motion sensors would report it.
+let motion = MotionSense()
+motion.onShaken = { complaint in
+    Task {
+        let spoke = await loop.interject(complaint)
+        say(spoke ? "shaken, and said so" : "shaken, but somebody was talking")
+    }
+}
+func shake(for seconds: Double) async {
+    say("(shaking the phone)")
+    let end = Duplex.now + seconds
+    var step = 0
+    while Duplex.now < end {
+        motion.feel(acceleration: Point(step % 12 < 6 ? 2.5 : -2.5, 0.4), rotation: 2, at: Duplex.now)
+        step += 1
+        try? await Task.sleep(for: .milliseconds(16))
+    }
+}
+
 /// One turn: phrases with pauses between them, then the time it ended.
 func turn(_ phrases: [String], pausing: Double = 0.55) async throws {
     for (index, phrase) in phrases.enumerated() {
@@ -505,16 +533,27 @@ func turn(_ phrases: [String], pausing: Double = 0.55) async throws {
 
 await mouth.pause(1)
 try await turn(["Hi there.", "I just got back from a long walk by the river."])
-await mouth.pauseForReply(after: 0)
+await mouth.pauseForReply(after: Report.ended())
 await mouth.pause(1.5)
+if CommandLine.arguments.contains("--shake") {
+    let before = Report.ended()
+    async let silence: Void = mouth.pause(2)
+    await shake(for: 1.5)
+    await silence
+    await mouth.pauseForReply(after: before)
+    await mouth.pause(1)
+}
 try await turn(["What should I cook tonight?", "Something quick."])
 // Talk over the reply a second after it starts.
 await mouth.pause(intoReply: 1.0)
+let beforeEggs = Report.ended()
 try await turn(["Actually, wait. I don't have any eggs."])
-await mouth.pauseForReply(after: 2)
+// The reply it cut off counts as one ending; wait for the next.
+await mouth.pauseForReply(after: beforeEggs + 1)
 await mouth.pause(1.5)
+let beforeLast = Report.ended()
 try await turn(["Tell me a little about yourself."])
-await mouth.pauseForReply(after: 3)
+await mouth.pauseForReply(after: beforeLast)
 await mouth.pause(2)
 running.cancel()
 

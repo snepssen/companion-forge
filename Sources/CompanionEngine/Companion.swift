@@ -2,8 +2,11 @@ import CompanionCore
 import Foundation
 import Observation
 
-/// Everything the app shows and controls, on the main actor. The Mac app and,
-/// later, the iPad and iPhone apps are views of this.
+/// Everything the app shows and controls, on the main actor. The Mac app and
+/// the iPad and iPhone apps are views of this.
+///
+/// There is no talk button: it listens as soon as it is ready, for as long as
+/// the app is open (and, on a phone or tablet, in front). Quitting stops it.
 @MainActor @Observable
 public final class Companion {
     public enum Phase: Equatable {
@@ -44,12 +47,23 @@ public final class Companion {
 
     /// Cancel the voice's echo so it can speak out of the speakers. Off only
     /// for someone on headphones who wants Apple's processing out of the way.
-    /// Remembered; takes effect the next time the conversation starts.
+    /// Remembered; listening starts again with it at once.
     public var echoCancellation: Bool = UserDefaults.standard.object(forKey: "echoCancellation") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(echoCancellation, forKey: "echoCancellation") }
+        didSet {
+            UserDefaults.standard.set(echoCancellation, forKey: "echoCancellation")
+            guard echoCancellation != oldValue, phase == .live else { return }
+            pause()
+            Task { await start() }
+        }
     }
 
+    /// Start listening by itself once ready. Off only for measuring (ccrun),
+    /// where nobody is there to be listened to.
+    public var listensWhenReady = true
+
     public var listening: Bool { phase == .live }
+    /// How the device is moving, for the face to follow.
+    public let motion = MotionSense()
     public var level: Float { audio?.buffer.level ?? 0 }
 
     private var recognizer: Recognizer?
@@ -57,6 +71,8 @@ public final class Companion {
     private var voice: Voice?
     private var audio: Duplex?
     private var loop: Task<Void, Never>?
+    private var running: Loop?
+    private var blurt: Blurt?
     private var events: Task<Void, Never>?
     private var nextLine = 0
     /// How loud its voice comes back through the canceller here, learned while
@@ -72,6 +88,10 @@ public final class Companion {
 
     public init() {
         timing = (try? JSONDecoder().decode(PauseModel.self, from: Data(contentsOf: Resources.timing))) ?? PauseModel()
+        motion.onShaken = { [weak self] complaint in
+            Task { @MainActor in await self?.complain(complaint) }
+        }
+        motion.start()
     }
 
     // MARK: loading
@@ -105,6 +125,7 @@ public final class Companion {
             notes = await memory?.notes ?? []
             try await loadBrain()
             writeUp()
+            if listensWhenReady { await start() }
         } catch {
             phase = .failed(error.localizedDescription)
         }
@@ -140,7 +161,10 @@ public final class Companion {
                 }
                 downloading = nil
             }
-            if recognizer != nil { try await loadBrain() }
+            if recognizer != nil {
+                try await loadBrain()
+                if listensWhenReady { await start() }
+            }
         } catch {
             downloading = nil
             phase = .failed(error.localizedDescription)
@@ -174,6 +198,7 @@ public final class Companion {
                 }
             }
             self.loop = Task { await loop.run() }
+            running = loop
             events = Task { [weak self] in
                 for await event in stream { self?.handle(event) }
             }
@@ -185,20 +210,55 @@ public final class Companion {
         }
     }
 
+    /// Stop listening, as the app leaves the screen or switches model, and
+    /// write up the conversation.
     public func stop() {
+        let wasLive = phase == .live
+        pause()
+        if wasLive { writeUp() }
+    }
+
+    /// Stop listening for a moment, to start again with something changed.
+    func pause() {
         loop?.cancel()
         events?.cancel()
         idleWatch?.cancel()
         loop = nil
+        running = nil
         events = nil
         idleWatch = nil
         audio?.stop()
         audio = nil
         face.hush(at: Duplex.now)
         face.set(.idle, at: Duplex.now)
-        if phase == .live {
-            phase = .ready
-            writeUp()
+        if phase == .live { phase = .ready }
+    }
+
+    // MARK: being shaken
+
+    /// Say so. In a conversation it goes through the conversation, and only
+    /// when nobody is talking; otherwise it is said on its own.
+    func complain(_ complaint: String) async {
+        face.set(.surprised, at: Duplex.now)
+        if let running {
+            if await running.interject(complaint) { return }
+            return  // somebody is talking: wide eyes are enough
+        }
+        guard blurt == nil, let voice, phase == .ready || phase == .needsModel else { return }
+        do {
+            let samples = try await Task.detached { try voice.speak(complaint) }.value
+            let blurt = try Blurt(samples, rate: voice.sampleRate)
+            self.blurt = blurt
+            face.say(SpokenWord.estimate(complaint, duration: blurt.end - blurt.start), at: blurt.start)
+            face.set(.speaking, at: blurt.start)
+            append(.companion, complaint)
+            try? await Task.sleep(for: .seconds(blurt.end - Duplex.now + 0.2))
+            blurt.stop()
+            self.blurt = nil
+            face.set(.idle, at: Duplex.now)
+        } catch {
+            blurt = nil
+            face.set(.idle, at: Duplex.now)
         }
     }
 
@@ -243,10 +303,6 @@ public final class Companion {
         notes = await memory?.notes ?? []
         recalled = []
         lines = []
-    }
-
-    public func toggle() async {
-        if phase == .live { stop() } else { await start() }
     }
 
     /// Forget how this person pauses and start learning again.

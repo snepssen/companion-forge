@@ -62,14 +62,29 @@ across each clip.
 
 ## The window
 
-The face fills it, with the last thing each of you said underneath, dimming
-once the conversation goes quiet, and one Talk button (or Space). While it
-listens, the panel's unlit cells brighten with your voice; while it loads,
-it is half asleep. Double-click or double-tap the face to leave only the
+There is nothing to press to talk. It listens as soon as its models are
+loaded, for as long as the app is open (on a phone or tablet, while it is on
+screen); quitting is how you stop it, and closing the Mac window quits. The
+face fills the window, with the last thing each of you said underneath,
+dimming once the conversation goes quiet. While it listens, the panel's
+unlit cells brighten with your voice; while it loads, it is half asleep. Double-click or double-tap the face to leave only the
 face, for a tablet on a stand. Settings has the visor's colour and style (LED
 panel or protoke's smooth outlines), the model, echo cancellation, what it
 remembers and what it has learned about your pauses. The speech bubble shows
 the whole conversation.
+
+## Moving it
+
+The face hangs behind the glass on a spring (`Sway`): move the phone and the
+face lags behind and swings back, turn it and the face tilts after it. On a
+Mac, which has no motion sensors, dragging the window does the same. Shake it
+hard for a second and its eyes go wide and it says so ("Woah there! This
+ain't a rodeo. Slow down, please.", and four others in turn), at most once
+every 25 seconds, and never over somebody talking. Carrying it about doesn't
+count: walking measures about 0.05 on the shake meter, a shake 2 and up, and
+it speaks at 1.2. With nothing else going on, its eyes look around: a quick
+dart somewhere, a hold of one to five seconds, often back to the middle. It
+looks at you while it listens and up to one side while it thinks.
 
 ## Memory
 
@@ -125,8 +140,9 @@ with xcodegen as translate-core's is):
 
 It offers the language models that fit beside recognition, the embedder and
 the voice: Qwen3 4B or Gemma 4 E2B on an 8 GB iPhone (with the increased
-memory entitlement), Gemma 4 E4B from 12 GB. Listening is foreground-only;
-leaving the app stops the conversation, which also writes it up. MLX needs a
+memory entitlement), Gemma 4 E4B from 12 GB. It listens while it is on screen;
+leaving the app stops it and writes the conversation up, and coming back
+starts it again. MLX needs a
 real GPU, so there is no Simulator build. It compiles and links for devices
 (2026-10-20) but has not been signed or run on one yet.
 
@@ -135,6 +151,7 @@ reply's echo leaking back into the "microphone" at a chosen level:
 
     .build/xcode/Build/Products/Release/ccrun              # a conversation with an interruption
     .build/xcode/Build/Products/Release/ccrun --echo 0.3   # with far more echo
+    .build/xcode/Build/Products/Release/ccrun --shake      # with the phone shaken between turns
     .build/xcode/Build/Products/Release/ccrun --faces /tmp/faces
     .build/xcode/Build/Products/Release/ccrun --memory     # notes written, then recalled
     .build/xcode/Build/Products/Release/ccrun --icon Resources/icon-1024.png   # the icon, from the face

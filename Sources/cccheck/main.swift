@@ -293,6 +293,81 @@ check("history is kept whole up to its limit", Window.trim(Window.kept) == 0)
 check("then trimmed by two steps", Window.trim(Window.kept + 1) == Window.step * 2)
 check("which leaves what is shown as it was", Window.shown(Window.kept + 1) == Window.shown(Window.kept + 1 - Window.trim(Window.kept + 1)))
 
+// MARK: motion
+
+let gaze = Gaze()
+let looks = stride(from: 0.0, to: 120, by: 0.25).map { gaze.wandering(at: $0) }
+check("the eyes look around", Set(looks.map { "\(Int($0.x * 10)),\(Int($0.y * 10))" }).count > 15)
+check("and stay within reach", looks.allSatisfy { abs($0.x) <= 1 && abs($0.y) <= 0.6 })
+check("often back to the middle", looks.filter { $0 == .zero }.count > looks.count / 10)
+var thinking = FacePerformance(origin: 0)
+thinking.set(.thinking, at: 0)
+check("thinking looks up and to the side", thinking.pose(at: 5).gaze.y < -0.4 && thinking.pose(at: 5).gaze.x > 0.4)
+var attentive = FacePerformance(origin: 0)
+attentive.set(.listening, at: 0)
+check("listening looks at them", (0..<40).allSatisfy {
+    let g = attentive.pose(at: 2 + Double($0) * 0.5).gaze
+    return abs(g.x) <= 0.15 && abs(g.y) <= 0.15
+})
+let gazing = FaceGeometry.shapes(Expression.visor.face, gaze: Point(1, 0))
+check("gazing moves the eyes", near(gazing[0][0].x - FaceGeometry.shapes(Expression.visor.face)[0][0].x,
+                                     FaceGeometry.gazeReach.x, 1e-9))
+
+var sway = Sway()
+var clock = 0.0
+for _ in 0..<30 {
+    clock += 1.0 / 60
+    sway.feel(acceleration: Point(1, 0), rotation: 0, at: clock)
+}
+check("pushed right, the face is left behind", sway.offset.x < -0.02)
+clock += 3
+sway.advance(to: clock)
+check("and swings back to rest", abs(sway.offset.x) < 0.002 && abs(sway.offset.y) < 0.002)
+for _ in 0..<30 {
+    clock += 1.0 / 60
+    sway.feel(acceleration: Point(0, -1), rotation: 3, at: clock)
+}
+check("dropped, it rises; turned, it tilts after", sway.offset.y < -0.02 && sway.tilt < -2)
+for _ in 0..<600 {
+    clock += 1.0 / 60
+    sway.feel(acceleration: Point(30, 30), rotation: 0, at: clock)
+}
+check("a jolt never throws it off the visor", abs(sway.offset.x) <= 0.12 && abs(sway.offset.y) <= 0.12)
+
+var shake = Shaking()
+var complained = 0
+clock = 0
+for step in 0..<120 {  // two seconds of walking about
+    clock += 1.0 / 60
+    if shake.feel(Point(0.3 * sin(Double(step) / 6), 0.2), at: clock) { complained += 1 }
+}
+check("carrying it about isn't shaking", complained == 0 && shake.level < 0.1)
+for step in 0..<90 {  // a second and a half of real shaking
+    clock += 1.0 / 60
+    if shake.feel(Point(step % 12 < 6 ? 2.5 : -2.5, 0), at: clock) { complained += 1 }
+}
+check("shaking it says so, once", complained == 1 && shake.level > 0.9)
+for step in 0..<300 {
+    clock += 1.0 / 60
+    if shake.feel(Point(step % 12 < 6 ? 2.5 : -2.5, 0), at: clock) { complained += 1 }
+}
+check("and not again for a while", complained == 1)
+shake.settle(at: clock + 5)
+check("it calms down", shake.level == 0)
+check("each complaint is different", Set(Shaking.complaints).count == Shaking.complaints.count)
+
+let shakenPose = Felt(offset: Point(0.05, 0), tilt: 4, shaken: 1).apply(to: Pose(face: Expression.sleepy.face, gaze: Point(1, 0)))
+check("shaken, the eyes go wide and front", shakenPose.face.eye.roundness == 1 && shakenPose.face.eye.openness == 1
+    && shakenPose.gaze == .zero && shakenPose.offset.x == 0.05 && shakenPose.tilt == 4)
+
+var unprompted = TurnTaker()
+check("it can speak up when nobody is talking", unprompted.speakUnprompted(at: 1))
+unprompted.interrupted(since: 1.2)
+check("and being talked over then isn't a cut-in", unprompted.model.cutIns == 0)
+var busy = TurnTaker()
+_ = busy.tick(at: 0.1, speech: true, probability: 0.9)
+check("but not over somebody", !busy.speakUnprompted(at: 0.2))
+
 // MARK: log
 
 let folder = FileManager.default.temporaryDirectory.appending(path: "cccheck-\(UUID().uuidString)")

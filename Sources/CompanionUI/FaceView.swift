@@ -10,23 +10,26 @@ public struct FaceView: View {
     public var style: VisorStyle
     /// How loud the microphone is, read every frame; 0 when not listening.
     public var hearing: () -> Float
+    /// How the device is moving, read every frame.
+    public var felt: () -> Felt
 
     /// One grid for every expression, so the cells never move.
     static let grid = FaceMatrix.grid(for: Expression.allCases.map(\.face))
 
     public init(performance: FacePerformance, colour: Color = VisorColour.cyan.color, style: VisorStyle = .panel,
-                hearing: @escaping () -> Float = { 0 }) {
+                hearing: @escaping () -> Float = { 0 }, felt: @escaping () -> Felt = { .still }) {
         self.performance = performance
         self.colour = colour
         self.style = style
         self.hearing = hearing
+        self.felt = felt
     }
 
     public var body: some View {
         TimelineView(.animation) { _ in
             Canvas { context, size in
-                Self.draw(performance.pose(at: ProcessInfo.processInfo.systemUptime), in: &context, size: size,
-                          colour: colour, style: style, hearing: Double(hearing()))
+                let pose = felt().apply(to: performance.pose(at: ProcessInfo.processInfo.systemUptime))
+                Self.draw(pose, in: &context, size: size, colour: colour, style: style, hearing: Double(hearing()))
             }
         }
         .accessibilityLabel("Companion's face, \(performance.mood.rawValue)")
@@ -60,7 +63,7 @@ public struct FaceView: View {
         context.scaleBy(x: scale, y: scale)
         context.translateBy(x: -(grid.left + width / 2), y: -(grid.top + height / 2))
 
-        let shapes = FaceGeometry.shapes(pose.face, muzzle: pose.muzzle)
+        let shapes = FaceGeometry.shapes(pose.face, muzzle: pose.muzzle, gaze: pose.gaze)
         // Speech is about 0.02 to 0.1 RMS at the microphone.
         let glow = min(1, hearing * 10)
         guard style == .panel else {

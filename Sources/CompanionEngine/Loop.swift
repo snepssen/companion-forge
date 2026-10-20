@@ -308,6 +308,22 @@ public actor Loop {
         anticipate()
     }
 
+    /// Say something nobody asked for (being shaken, say), if nobody is
+    /// talking; false if somebody is.
+    public func interject(_ text: String) async -> Bool {
+        guard taker.phase == .waiting else { return false }
+        let voice = voice
+        guard let samples = try? await Task.detached(operation: { try voice.speak(text) }).value, !samples.isEmpty,
+              taker.speakUnprompted(at: Double(processed) / 16_000)
+        else { return false }
+        draft?.cancel()
+        reply = Reply(id: reply.id + 1)
+        reply.committed = true
+        reply.written = true
+        say(text, samples)
+        return true
+    }
+
     /// Have the model read the conversation so far while they talk.
     private func anticipate() {
         let (brain, memory, history) = (brain, memory, history)

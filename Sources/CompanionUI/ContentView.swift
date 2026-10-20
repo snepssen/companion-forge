@@ -2,8 +2,9 @@ import CompanionCore
 import CompanionEngine
 import SwiftUI
 
-/// The face, what was last said underneath it, and one button. Double-click
-/// or double-tap the face to leave only the face, for a tablet on a stand.
+/// The face and what was last said underneath it. There is nothing to press
+/// to talk: it listens as soon as it is ready. Double-click or double-tap the
+/// face to leave only the face, for a tablet on a stand.
 public struct ContentView: View {
     @Bindable var companion: Companion
     @State private var settings = false
@@ -16,9 +17,12 @@ public struct ContentView: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            FaceView(performance: companion.face, colour: colour.color, style: style) { [companion] in
-                companion.listening ? companion.level : 0
-            }
+            FaceView(performance: companion.face, colour: colour.color, style: style,
+                     hearing: { [companion] in companion.listening ? companion.level : 0 },
+                     felt: { [motion = companion.motion] in motion.felt() })
+            #if os(macOS)
+            .background(WindowMotion(motion: companion.motion))
+            #endif
             .padding(.horizontal, faceOnly ? 16 : 40)
             .padding(.vertical, faceOnly ? 16 : 24)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -31,14 +35,13 @@ public struct ContentView: View {
                     .padding(.bottom, 12)
                     .transition(.opacity)
             }
-            bar
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                .background(.white.opacity(0.04))
-                // Hidden rather than removed in face-only mode, so Space still talks.
-                .opacity(faceOnly ? 0 : 1)
-                .frame(height: faceOnly ? 0 : nil)
-                .allowsHitTesting(!faceOnly)
+            if !faceOnly {
+                bar
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .background(.white.opacity(0.04))
+                    .transition(.opacity)
+            }
         }
         .background(.black)
         .preferredColorScheme(.dark)
@@ -76,7 +79,8 @@ public struct ContentView: View {
     private var bar: some View {
         HStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(status).font(.callout).foregroundStyle(.white.opacity(0.85))
+                Label(status, systemImage: companion.listening ? "mic.fill" : "mic.slash")
+                    .font(.callout).foregroundStyle(.white.opacity(0.85))
                 if let notice = companion.notice {
                     Text(notice).font(.caption).foregroundStyle(.orange)
                 }
@@ -85,20 +89,6 @@ public struct ContentView: View {
             if companion.phase == .needsModel {
                 Button("Choose a model…") { settings = true }
             }
-            Button {
-                Task { await companion.toggle() }
-            } label: {
-                Label(companion.listening ? "Stop" : "Talk", systemImage: companion.listening ? "stop.fill" : "mic.fill")
-                    .font(.headline)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-            }
-            .keyboardShortcut(.space, modifiers: [])
-            .disabled(!(companion.phase == .ready || companion.phase == .live))
-            .buttonStyle(.borderedProminent)
-            .buttonBorderShape(.capsule)
-            .tint(companion.listening ? .red : colour.color)
-            .foregroundStyle(companion.listening ? .white : .black)
             Button {
                 transcript = true
             } label: {
@@ -127,7 +117,7 @@ public struct ContentView: View {
         case .idle: "Waking up…"
         case let .loading(what): what
         case .needsModel: "It needs a language model to talk with."
-        case .ready: "Ready. Press Talk or Space."
+        case .ready: "Ready."
         case .live:
             switch companion.face.mood {
             case .listening: "Listening…"
@@ -257,7 +247,7 @@ struct SettingsView: View {
             }
             Section("Speaking") {
                 Toggle("Echo cancellation", isOn: $companion.echoCancellation)
-                Text("Lets it talk out of the speakers without hearing itself. Takes effect the next time you press Talk.")
+                Text("Lets it talk out of the speakers without hearing itself. Turn it off only on headphones.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Memory") {

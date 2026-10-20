@@ -269,3 +269,47 @@ public final class Duplex: AudioIO, @unchecked Sendable {
         #endif
     }
 }
+
+/// Something said out loud while nobody is talking with it: the voice alone,
+/// no microphone and no echo canceller. Kept until it has been said.
+public final class Blurt: @unchecked Sendable {
+    private let engine: AVAudioEngine
+    private let player: AVAudioPlayerNode
+    public let start: Double
+    public let end: Double
+
+    public init(_ samples: [Float], rate: Double) throws {
+        let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: rate, channels: 1, interleaved: false)!
+        guard !samples.isEmpty, let pcm = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(samples.count))
+        else { throw AudioFailure.noInput }
+        pcm.frameLength = AVAudioFrameCount(samples.count)
+        samples.withUnsafeBufferPointer { pcm.floatChannelData![0].update(from: $0.baseAddress!, count: samples.count) }
+        #if os(iOS)
+        try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.duckOthers])
+        try AVAudioSession.sharedInstance().setActive(true)
+        #endif
+        let (engine, player) = (AVAudioEngine(), AVAudioPlayerNode())
+        try objc {
+            engine.attach(player)
+            engine.connect(player, to: engine.mainMixerNode, format: format)
+            engine.prepare()
+        }
+        try engine.start()
+        try objc {
+            player.scheduleBuffer(pcm)
+            player.play()
+        }
+        self.engine = engine
+        self.player = player
+        start = Duplex.now
+        end = start + Double(samples.count) / rate
+    }
+
+    public func stop() {
+        player.stop()
+        engine.stop()
+        #if os(iOS)
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        #endif
+    }
+}

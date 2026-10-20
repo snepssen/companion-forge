@@ -157,6 +157,9 @@ public struct TurnTaker: Sendable {
     private var overlapReported = false
     /// The pause the last reply came after, in case it cuts in.
     private var replyPause = 0.0
+    /// The companion spoke without being spoken to: talking over that isn't
+    /// a sign it replied too soon.
+    private var unprompted = false
 
     public init(model: PauseModel = PauseModel()) { self.model = model }
 
@@ -195,6 +198,7 @@ public struct TurnTaker: Sendable {
             }
             if drafted && heard && gap >= model.wait(after: ending) {
                 phase = .replying(since: t)
+                unprompted = false
                 replyPause = gap
                 drafted = false
                 heard = false
@@ -240,7 +244,7 @@ public struct TurnTaker: Sendable {
 
     /// They talked over the reply from `since`; it stops, and the turn is theirs.
     public mutating func interrupted(since: Double) {
-        if case let .replying(started) = phase, since - started < Self.cutInWindow {
+        if case let .replying(started) = phase, since - started < Self.cutInWindow, !unprompted {
             // They hadn't finished: that pause was inside their turn.
             model.resumed(after: replyPause)
             model.cutIn()
@@ -250,6 +254,15 @@ public struct TurnTaker: Sendable {
         ending = .statement
         overlapStart = nil
         overlapReported = false
+    }
+
+    /// The companion says something of its own accord, with nobody talking;
+    /// false if somebody is.
+    public mutating func speakUnprompted(at t: Double) -> Bool {
+        guard phase == .waiting else { return false }
+        phase = .replying(since: t)
+        unprompted = true
+        return true
     }
 
     /// The reply has been said in full.

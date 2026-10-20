@@ -24,12 +24,21 @@ public enum FaceGeometry {
     static let mouthThickness = 34.0
     static let mouthCornerLift = 78.0
 
-    /// Every filled outline of one pose. `muzzle` shifts the mouth alone.
-    public static func shapes(_ face: Face, muzzle: Point = .zero) -> [[Point]] {
+    /// How far the eyes travel at the edge of their gaze, in face units.
+    public static let gazeReach = Point(55, 35)
+
+    /// Every filled outline of one pose. `muzzle` shifts the mouth alone;
+    /// `gaze` (-1...1 each way) moves the eyes, and the mouth a little with
+    /// them, as a head turns a touch towards what it looks at.
+    public static func shapes(_ face: Face, muzzle: Point = .zero, gaze: Point = .zero) -> [[Point]] {
         let sharpness = min(1, max(0, face.sharpness))
+        let look = gaze * gazeReach
+        let mouthShift = muzzle + look * 0.18
         var mouth = self.mouth(face.mouth, sharpness: sharpness)
-        if muzzle != .zero { mouth = mouth.map { $0.map { $0 + muzzle } } }
-        return [eye(face.eye, sharpness: sharpness), eye(face.eye, mirrored: true, sharpness: sharpness)] + mouth
+        if mouthShift != .zero { mouth = mouth.map { $0.map { $0 + mouthShift } } }
+        var eyes = [eye(face.eye, sharpness: sharpness), eye(face.eye, mirrored: true, sharpness: sharpness)]
+        if look != .zero { eyes = eyes.map { $0.map { $0 + look } } }
+        return eyes + mouth
     }
 
     // MARK: eyes
@@ -258,7 +267,10 @@ public enum FaceMatrix {
     /// widest the face gets in any of these expressions, so cells stay put
     /// while shapes change inside them.
     public static func grid(for resting: [Face], columns: Int = columns) -> Grid {
-        let widest = resting.flatMap { FaceGeometry.shapes(Face($0.eye.with(openness: 1), Viseme.ah.mouth)) }
+        let corners = [Point(-1, -1), Point(1, 1)]
+        let widest = resting.flatMap { face in
+            corners.flatMap { FaceGeometry.shapes(Face(face.eye.with(openness: 1), Viseme.ah.mouth), gaze: $0) }
+        }
         let xs = widest.flatMap { $0.map(\.x) }
         let ys = widest.flatMap { $0.map(\.y) }
         let pad = (xs.max()! - xs.min()!) * 0.04

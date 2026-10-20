@@ -268,12 +268,15 @@ public struct Pose: Sendable {
     public var tilt: Double
     /// Face units.
     public var muzzle: Point
+    /// Where the eyes look, -1...1 each way.
+    public var gaze: Point
 
-    public init(face: Face, offset: Point = .zero, tilt: Double = 0, muzzle: Point = .zero) {
+    public init(face: Face, offset: Point = .zero, tilt: Double = 0, muzzle: Point = .zero, gaze: Point = .zero) {
         self.face = face
         self.offset = offset
         self.tilt = tilt
         self.muzzle = muzzle
+        self.gaze = gaze
     }
 }
 
@@ -288,11 +291,13 @@ public struct FacePerformance: Sendable {
 
     public private(set) var mood = Mood.idle
     private var from = Mood.idle.expression.face
+    private var fromAim = Gaze.aim(.idle)
     private var changed = -1e9
     private var keys: [(time: Double, mouth: Mouth)] = []
     private var spans: [(start: Double, end: Double)] = []
     private let blinks = Blinks()
     private let head = HeadMotion()
+    private let gaze = Gaze()
     private let origin: Double
 
     public init(origin: Double) { self.origin = origin }
@@ -300,6 +305,7 @@ public struct FacePerformance: Sendable {
     public mutating func set(_ mood: Mood, at time: Double) {
         guard mood != self.mood else { return }
         from = resting(at: time)
+        fromAim = aim(at: time)
         self.mood = mood
         changed = time
     }
@@ -327,8 +333,16 @@ public struct FacePerformance: Sendable {
     }
 
     func resting(at time: Double) -> Face {
-        let blend = Visemes.smoothstep(min(1, max(0, (time - changed) / Self.moodBlend)))
-        return from.blended(mood.expression.face, blend)
+        from.blended(mood.expression.face, moodBlend(at: time))
+    }
+
+    func moodBlend(at time: Double) -> Double { Visemes.smoothstep(min(1, max(0, (time - changed) / Self.moodBlend))) }
+
+    /// Where the mood points the eyes and how far they wander, eased between moods.
+    func aim(at time: Double) -> (target: Point, wander: Double) {
+        let blend = moodBlend(at: time)
+        let to = Gaze.aim(mood)
+        return (fromAim.target + (to.target - fromAim.target) * blend, fromAim.wander + (to.wander - fromAim.wander) * blend)
     }
 
     /// 0 while the voice is going, 1 once the face has settled back to rest.
@@ -350,6 +364,9 @@ public struct FacePerformance: Sendable {
         let (offset, tilt) = head.at(time - origin, speaking: idle < 1, amount: mood.expression.motion)
         let extra = FaceGeometry.mouthParallax - 1
         let muzzle = Point(offset.x * FaceGeometry.unit * extra, offset.y * FaceGeometry.unit * extra * 0.5)
-        return Pose(face: face, offset: offset, tilt: tilt, muzzle: muzzle)
+        let (target, wander) = aim(at: time)
+        let look = target + gaze.wandering(at: time - origin) * wander
+        return Pose(face: face, offset: offset, tilt: tilt, muzzle: muzzle,
+                    gaze: Point(min(1, max(-1, look.x)), min(1, max(-1, look.y))))
     }
 }
