@@ -19,6 +19,7 @@
 //   ccrun --lipsync "text"      the mouth from the voice's phoneme timings, beside the spelling estimate
 //   ccrun --recall              how the embedder ranks notes, for the thresholds
 //   ccrun --long [--anticipate] a long conversation: prompt re-reading and first-word times
+//   ccrun --ask "a | b"         each said to it on its own, and its answer
 //
 // Built with build.sh's xcodebuild (MLX needs its Metal library beside it):
 //   .build/xcode/Build/Products/Release/ccrun
@@ -453,6 +454,23 @@ if let text = option("--lipsync") {
 
 if CommandLine.arguments.contains("--spatial-check") || option("--spatial-check") != nil {
     try await spatialCheck()
+    exit(0)
+}
+
+/// Things said to it, each on its own, and what it answers: for checking
+/// how it handles what it can't do.
+func ask(_ lines: [String]) async throws {
+    let model = ModelCatalog.model(option("--model")) ?? ModelCatalog.recommended
+    guard let directory = ModelStore.location(of: model) else { print("\(model.name) isn't downloaded"); return }
+    let brain = try await Brain(model: model, at: directory)
+    for line in lines {
+        let reply = try await brain.reply(to: [Turn(.person, line)]) { _ in }
+        print("you: \(line)\n  it: \(reply)")
+    }
+}
+
+if let text = option("--ask") {
+    try await ask(text.components(separatedBy: " | "))
     exit(0)
 }
 
