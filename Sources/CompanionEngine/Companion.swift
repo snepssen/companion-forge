@@ -410,7 +410,7 @@ public final class Companion {
             save(model)
         case let .echoLevel(level):
             echoLevel = level
-        case .overlap, .drafted:
+        case .overlap, .drafted, .echoDelay:
             break
         case let .problem(message):
             notice = message

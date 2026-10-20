@@ -147,6 +147,12 @@ check("numbers are", Speakable.clean("It's 3 # 4") == "It's 3 # 4")
 check("its own words back are echo", Echo.isEcho(heard: "how are you", saying: "How are you today? I hope well."))
 check("nothing intelligible is echo", Echo.isEcho(heard: "", saying: "Hello there."))
 check("different words are an interruption", !Echo.isEcho(heard: "wait stop a second", saying: "How are you today?"))
+check("the reply's own tail is not their turn",
+      Echo.strippingTail("like to do.", said: "Oh, sorry. You meant what kind of stuff do you like to do?").isEmpty)
+check("their words after the tail are kept",
+      Echo.strippingTail("to do? Hiking, mostly.", said: "What do you like to do?") == "Hiking, mostly.")
+check("a turn that starts fresh is left alone",
+      Echo.strippingTail("Tell me a joke.", said: "What do you like to do?") == "Tell me a joke.")
 
 var level = EchoLevel()
 let tone = (0..<16_000).map { Float(sin(Double($0) * 0.07)) * 0.3 }
@@ -158,6 +164,18 @@ check("a voice much louder than it is not", level.isEcho(mic: tone.map { $0 * 0.
 check("nothing playing, no verdict", level.isEcho(mic: tone, played: [Float](repeating: 0, count: 100)) == nil)
 level.hear(mic: tone, played: tone)
 check("one loud interruption barely moves it", level.leak.map { near($0, 0.05, 0.001) } ?? false)
+
+var delayed = EchoDelay()
+// Syllables: loudness rising and falling, irregularly, as speech does.
+let syllables = (0..<200).map { 0.05 + 0.05 * max(0, sin(Double($0) * 0.9) + sin(Double($0) * 0.37)) }
+for (index, level) in syllables.enumerated() {
+    let late = index >= 5 ? syllables[index - 5] : 0  // five frames, 160 ms, late
+    delayed.hear(mic: late * 0.3 + 0.002, played: level)
+}
+check("the echo's delay is found", near(delayed.delay, 0.16, 1e-9) && delayed.match > 0.9)
+var unrelated = EchoDelay()
+for (index, level) in syllables.enumerated() { unrelated.hear(mic: 0.05 + 0.04 * sin(Double(index) * 2.3), played: level) }
+check("nothing like an echo, no delay believed", unrelated.delay == 0)
 
 // MARK: face
 

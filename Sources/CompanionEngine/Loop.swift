@@ -22,6 +22,8 @@ public enum LoopEvent: Sendable {
     case drafted(DraftTimes)
     /// How loud the reply comes back, as learned so far: kept for the next session.
     case echoLevel(EchoLevel)
+    /// How late it comes back, and how surely that was measured.
+    case echoDelay(Double, match: Double)
     /// Speech over a reply: what it was transcribed as, how loud it was as a
     /// multiple of the reply's learned echo (nil before that is learned), and
     /// the verdict.
@@ -100,6 +102,13 @@ public actor Loop {
     private var reply = Reply()
     private var draft: Task<Void, Never>?
     private var echoLevel: EchoLevel
+    /// The last reply, what of it was said and when its voice stopped: its
+    /// echo can open the next turn.
+    private var lastReply: (text: String, end: Double)?
+    static let echoTail = 1.0
+    private var echoDelay = EchoDelay()
+    /// After the voice stops, how long its echo is still waited out.
+    static let ringing = 0.3
 
     public init(audio: any AudioIO, vad: SileroVAD, recognizer: Recognizer, brain: Brain, voice: Voice,
                 memory: Memory? = nil, attention: AttentionSense? = nil, log: ConversationLog?,
@@ -133,6 +142,7 @@ public actor Loop {
                     emit(.problem("The voice detector failed: \(error.localizedDescription)"))
                     return
                 }
+                listenForDelay(samples, behind: available - processed)
                 listenForEcho(samples, behind: available - processed)
                 if speech { listenForWhere() }
                 act(taker.tick(at: t, speech: speech, probability: vad.probability), at: t)
@@ -169,8 +179,22 @@ public actor Loop {
     /// many samples the microphone has delivered since this frame.
     private func listenForEcho(_ frame: [Float], behind: Int) {
         guard case .replying = taker.phase, audio.backlog > 0 else { return }
+        echoLevel.hear(mic: frame, played: playedBehind(frame.count, behind: behind))
+    }
+
+    /// While the reply plays and just after, learn how late it comes back.
+    private func listenForDelay(_ frame: [Float], behind: Int) {
+        guard audio.backlog > 0 || reply.said.contains(where: { Duplex.now - $0.end < 0.6 }) else { return }
         let end = Duplex.now - Double(behind) / 16_000
-        echoLevel.hear(mic: frame, played: audio.reference(from: end - Double(frame.count) / 16_000, to: end))
+        let played = audio.reference(from: end - Double(frame.count) / 16_000, to: end)
+        echoDelay.hear(mic: EchoLevel.level(frame), played: EchoLevel.level(played))
+    }
+
+    /// What was played as long before this frame as the echo takes to come
+    /// back: what the microphone is hearing of it now.
+    private func playedBehind(_ count: Int, behind: Int) -> [Float] {
+        let end = Duplex.now - Double(behind) / 16_000 - echoDelay.delay
+        return audio.reference(from: end - Double(count) / 16_000, to: end)
     }
 
     /// Someone is speaking: where from, if the microphone has two sides.
@@ -193,9 +217,15 @@ public actor Loop {
     private func write(_ id: Int, _ samples: [Float]) async {
         reply.started = Duplex.now
         do {
-            let text = try await recognizer.transcribe(samples)
+            var text = try await recognizer.transcribe(samples)
             guard reply.id == id, !Task.isCancelled else { return }
             reply.times.transcribed = Duplex.now - reply.started
+            // A turn that began as the last reply's voice stopped may begin
+            // with that reply's own last words, off the room.
+            let began = Duplex.now - Double(processed - turnStart - Self.preroll) / 16_000
+            if let last = lastReply, began - last.end < Self.echoTail {
+                text = Echo.strippingTail(text, said: last.text)
+            }
             if text.isEmpty {
                 taker.discard()
                 reply = Reply(id: id + 1)
@@ -305,11 +335,16 @@ public actor Loop {
     /// Said everything it wrote: the turn is open again.
     private func finishIfSaid() {
         guard reply.committed, reply.written, !reply.finished, reply.held.isEmpty, audio.backlog <= 0 else { return }
+        // Its last words are still coming back off the room: the turn isn't
+        // open until they have, or they would open it.
+        if let end = reply.said.last?.end, Duplex.now < end + echoDelay.delay + Self.ringing { return }
         reply.finished = true
         let text = reply.said.map(\.text).joined(separator: " ")
         if !text.isEmpty { record(Turn(.companion, text)) }
+        lastReply = (text, (reply.said.last?.end ?? Duplex.now) + echoDelay.delay)
         emit(.replied(text, interrupted: false))
         emit(.echoLevel(echoLevel))
+        emit(.echoDelay(echoDelay.delay, match: echoDelay.match))
         taker.replyFinished()
         anticipate()
         emit(.mood(.idle))
@@ -322,8 +357,7 @@ public actor Loop {
     /// is against what was being played.
     private func check(overlapSince since: Double, reply id: Int) {
         let samples = audio.buffer.read(Int(since * 16_000), processed)
-        let end = Duplex.now - Double(audio.buffer.count - processed) / 16_000
-        let played = audio.reference(from: end - Double(samples.count) / 16_000, to: end)
+        let played = playedBehind(samples.count, behind: audio.buffer.count - processed)
         let quiet = echoLevel.isEcho(mic: samples, played: played)
         let loudness = echoLevel.leak.map { EchoLevel.level(samples) / max(1e-9, $0 * EchoLevel.level(played)) }
         Task {
@@ -350,6 +384,7 @@ public actor Loop {
         draft?.cancel()
         let said = reply.said.filter { $0.start <= now }.map(\.text).joined(separator: " ")
         if !said.isEmpty { record(Turn(.companion, said, interrupted: true)) }
+        lastReply = (said, now)
         emit(.hushed(at: now))
         emit(.replied(said, interrupted: true))
         taker.interrupted(since: since)

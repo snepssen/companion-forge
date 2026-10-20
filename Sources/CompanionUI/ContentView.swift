@@ -248,8 +248,13 @@ struct SettingsView: View {
             }
             Section("Speaking") {
                 Toggle("Echo cancellation", isOn: $companion.echoCancellation)
+                #if os(macOS)
+                Text("On a Mac it keeps its own voice out by itself; this switch only matters on iPhone and iPad.")
+                    .font(.caption).foregroundStyle(.secondary)
+                #else
                 Text("Lets it talk out of the speakers without hearing itself. Turn it off only on headphones.")
                     .font(.caption).foregroundStyle(.secondary)
+                #endif
                 Toggle("Look at whoever is talking", isOn: $companion.watching)
                 Text("Uses the front camera to see who is talking and turn to them. Nothing it sees is kept or leaves "
                      + "this device. Without the echo canceller, the microphones tell it too.")

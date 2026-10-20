@@ -5,6 +5,7 @@
 //
 //   ccrun                       a short conversation, with an interruption
 //   ccrun --echo 0.3            the same with far more echo leaking through
+//   ccrun --delay 0.15          with the echo coming back that much late, as off a room
 //   ccrun --shake               with the phone shaken between turns
 //   ccrun --commands            asked out loud to remember something, then to forget it
 //   ccrun --from-right          spoken to from the right of a stereo microphone, then the left
@@ -336,6 +337,100 @@ func lipsync(_ text: String) throws {
     print("  from spelling:   \(show(Visemes.timeline(SpokenWord.estimate(text, duration: seconds))))")
 }
 
+/// The microphone through the app's own audio engine, with and without the
+/// echo canceller, while the Mac says something out loud: what format comes
+/// in, and how loud.
+func micCheck() async throws {
+    let devices = AudioDevicesInfo.defaults()
+    print("input: \(devices.input), output: \(devices.output)")
+    // --mic-check plain | cancel | cancel-builtin: one per process, so one
+    // engine's teardown can't spoil the next.
+    let mode = option("--mic-check") ?? "plain"
+    let builtIn = AudioDevicesInfo.all().first { $0.builtIn && $0.outputs > 0 && $0.name.contains("Speakers") }
+    // "restart" switches the canceller on, off and on again in one process,
+    // as the app does when the setting is changed.
+    let sequence = mode == "restart" ? [true, false, true] : [mode != "plain"]
+    for cancelling in sequence {
+        let output = mode == "cancel-builtin" ? builtIn?.id : nil
+        let audio = try Duplex(sampleRate: 22_050, echoCancellation: cancelling, spatial: false, output: output)
+        print("\(cancelling ? "with" : "without") the echo canceller\(output != nil ? ", playing to \(builtIn!.name)" : ""): "
+              + audio.inputDescription)
+        fflush(stdout)
+        do {
+            try audio.start()
+        } catch {
+            print("  couldn't start: \(error.localizedDescription)")
+            continue
+        }
+        /// Loudest level per channel, and of what the loop is given, over `seconds`.
+        func measure(_ seconds: Double) async throws -> (channels: [Double], given: Float) {
+            var channels: [Double] = []
+            var given: Float = 0
+            let started = Duplex.now
+            while Duplex.now - started < seconds {
+                try await Task.sleep(for: .milliseconds(50))
+                let now = audio.channelLevels
+                channels = channels.isEmpty ? now : zip(channels, now).map(max)
+                given = max(given, audio.buffer.level)
+            }
+            return (channels, given)
+        }
+        func show(_ label: String, _ result: (channels: [Double], given: Float)) {
+            print("  \(label): channels " + result.channels.map { String(format: "%.4f", $0) }.joined(separator: " ")
+                  + String(format: ", given to the loop %.4f", result.given))
+        }
+        // Its own voice, through the engine: the canceller should take it out.
+        if let voiceURL = Resources.voice, let espeak = Resources.espeakData {
+            let voice = try Voice(model: voiceURL, espeakData: espeak)
+            let samples = try voice.speak("This is my own voice, which I should not hear.")
+            audio.play(resample(samples, from: voice.sampleRate, to: 22_050))
+            show("its own voice", try await measure(3))
+        }
+        try await Task.sleep(for: .milliseconds(500))
+        // Someone else talking: should come through.
+        let speaker = Process()
+        speaker.executableURL = URL(fileURLWithPath: "/usr/bin/say")
+        speaker.arguments = ["Testing, one, two, three. Can you hear me?"]
+        try speaker.run()
+        show("another voice", try await measure(3.5))
+        speaker.waitUntilExit()
+        audio.stop()
+        fflush(stdout)
+        try await Task.sleep(for: .milliseconds(500))
+    }
+}
+
+/// The camera watcher for ten seconds: where it would look, and how sure.
+func watchCheck() async throws {
+    guard await Watcher.permission() else { print("no camera permission"); return }
+    let attention = AttentionSense()
+    let watcher = Watcher(attention: attention)
+    watcher.report = { faces in
+        let line = faces.map { String(format: "(%.2f, %.2f) size %.3f mouth moving %.3f", $0.position.x, $0.position.y, $0.size, $0.talking) }
+        print("  sees \(faces.count) face(s): " + line.joined(separator: "; "))
+        fflush(stdout)
+    }
+    try watcher.start()
+    print("watching for ten seconds; talk, and move from side to side")
+    fflush(stdout)
+    for _ in 0..<10 {
+        try await Task.sleep(for: .seconds(1))
+        if let look = attention.look() { print(String(format: "looking at (%.2f, %.2f)", look.x, look.y)) } else { print("looking nowhere") }
+        fflush(stdout)
+    }
+    watcher.stop()
+}
+
+if CommandLine.arguments.contains("--watch") {
+    try await watchCheck()
+    exit(0)
+}
+
+if CommandLine.arguments.contains("--mic-check") || option("--mic-check") != nil {
+    try await micCheck()
+    exit(0)
+}
+
 if let text = option("--lipsync") {
     try lipsync(text)
     exit(0)
@@ -375,15 +470,18 @@ final class Played: AudioIO, @unchecked Sendable {
     let buffer = SampleBuffer()
     let rate: Double
     let echo: Float
+    /// How late the echo comes back: output and input latency and the room.
+    let delay: Double
     private let lock = NSLock()
     /// Replies, at 16 kHz, with when they start and where they were cut off.
     private var clips: [(start: Double, samples: [Float], cut: Double)] = []
     private var end = 0.0
     private(set) var firstPlayed: Double?
 
-    init(rate: Double, echo: Float) {
+    init(rate: Double, echo: Float, delay: Double = 0) {
         self.rate = rate
         self.echo = echo
+        self.delay = delay
     }
 
     func play(_ samples: [Float]) -> (start: Double, end: Double) {
@@ -407,7 +505,7 @@ final class Played: AudioIO, @unchecked Sendable {
     /// What was played, unattenuated: the loop measures the echo against it.
     func reference(from start: Double, to end: Double) -> [Float] {
         let count = max(0, Int((end - start) * 16_000))
-        return (0..<count).map { leak(at: start + Double($0) / 16_000) / max(echo, 1e-9) }
+        return (0..<count).map { played(at: start + Double($0) / 16_000) }
     }
 
     var backlog: Double { lock.withLock { max(0, end - Duplex.now) } }
@@ -424,12 +522,15 @@ final class Played: AudioIO, @unchecked Sendable {
     func markReply() { lock.withLock { firstPlayed = nil } }
 
     /// What the speakers put back into the microphone at this moment.
-    func leak(at time: Double) -> Float {
+    func leak(at time: Double) -> Float { played(at: time - delay) * echo }
+
+    /// What the speakers were playing at `time`.
+    func played(at time: Double) -> Float {
         lock.withLock {
             var value: Float = 0
             for clip in clips where clip.start <= time && time < clip.cut {
                 let index = Int((time - clip.start) * 16_000)
-                if index < clip.samples.count { value += clip.samples[index] * echo }
+                if index < clip.samples.count { value += clip.samples[index] }
             }
             return value
         }
@@ -501,7 +602,7 @@ say(String(format: "loaded; footprint %.2f GB", footprint().now))
 
 func speech(_ text: String) throws -> [Float] { resample(try voice.speak(text), from: voice.sampleRate) }
 
-let audio = Played(rate: voice.sampleRate, echo: echo)
+let audio = Played(rate: voice.sampleRate, echo: echo, delay: Double(option("--delay") ?? "0") ?? 0)
 let mouth = Mouth(audio)
 
 /// What happened, for the summary.
@@ -559,6 +660,8 @@ enum Report {
     case let .drafted(t):
         say(String(format: "draft: heard %.2f s, recalled %.2f, first words %.2f, first sentence %.2f, its voice %.2f; read %d of %d prompt tokens",
                    t.transcribed, t.recalled, t.firstWords, t.firstSentence, t.firstVoice, t.promptRead, t.promptLength))
+    case let .echoDelay(delay, match):
+        say(String(format: "echo comes back %.0f ms late (match %.2f)", delay * 1000, match))
     case let .echoLevel(level):
         if let leak = level.leak { say(String(format: "echo comes back at %.3f of what was played", leak)) }
     case let .problem(message): say("PROBLEM: \(message)")

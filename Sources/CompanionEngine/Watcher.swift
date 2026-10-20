@@ -36,6 +36,9 @@ public final class Watcher: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
     /// The front camera's picture is the camera's view; as the viewer sees
     /// the screen it is mirrored. On iOS the picture is asked for mirrored.
     private let mirrored: Bool
+    /// Every few pictures, what was seen: for diagnosing.
+    public var report: (@Sendable ([SeenFace]) -> Void)?
+    private var frames = 0
 
     public init(attention: AttentionSense) {
         self.attention = attention
@@ -119,6 +122,8 @@ public final class Watcher: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
             return face
         }
         if let (position, weight) = SeenFace.lookAt(tracks) { attention.hear(position, weight: weight, at: now) }
+        frames += 1
+        if frames % 5 == 0 { report?(tracks) }
     }
 
     private func distance(_ a: Point, _ b: Point) -> Double { ((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y)).squareRoot() }

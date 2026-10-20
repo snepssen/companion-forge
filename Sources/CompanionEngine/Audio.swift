@@ -183,14 +183,28 @@ public final class Duplex: AudioIO, @unchecked Sendable {
     private var end = 0.0  // uptime the last scheduled clip finishes
     private var played = PlayedClips()
     private var sides: (left: Double, right: Double, at: Double)?
+    private var levels: [Double] = []
+
+    /// Whether Apple's echo canceller is used where it is asked for.
+    #if os(macOS)
+    static let appleCanceller = false
+    #else
+    static let appleCanceller = true
+    #endif
 
     /// The clock clips are scheduled on, and the face is drawn on.
     public static var now: Double { ProcessInfo.processInfo.systemUptime }
 
-    public init(sampleRate: Double, echoCancellation: Bool = true, spatial: Bool = true) throws {
+    /// `output`, on a Mac, plays through that device rather than the
+    /// system's default: the echo canceller pairs the microphone with the
+    /// output, and can't with a virtual one in between.
+    public init(sampleRate: Double, echoCancellation: Bool = true, spatial: Bool = true, output: UInt32? = nil) throws {
         format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: sampleRate, channels: 1, interleaved: false)!
         echoCancelling = echoCancellation
         self.spatial = spatial
+        #if os(macOS)
+        if let output { try AudioDevicesInfo.use(output, on: engine.outputNode) }
+        #endif
         #if os(iOS)
         let session = AVAudioSession.sharedInstance()
         try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetoothA2DP])
@@ -200,14 +214,32 @@ public final class Duplex: AudioIO, @unchecked Sendable {
         // from, for the face to turn to. A preference; the route may refuse.
         if !echoCancellation { Self.preferStereo(session) }
         #endif
-        if echoCancellation {
+        // Apple's echo canceller on a Mac proved unusable (M1 MacBook Pro,
+        // 2026-10-20): its microphone side delivered nothing at all, whatever
+        // devices it was pointed at, except once, with a virtual output
+        // device present. On a Mac the microphone is taken as it is, and the
+        // loop's own guards keep its voice out: talking over a reply has to
+        // be louder than its learned echo and not its own words, and the
+        // first words of a turn are checked against the end of the last reply.
+        if echoCancellation && Self.appleCanceller {
             // Before anything is connected: switching it on rebuilds both I/O units.
             try engine.inputNode.setVoiceProcessingEnabled(true)
             // Left alone it turns every other app's sound down while it listens.
             engine.inputNode.voiceProcessingOtherAudioDuckingConfiguration =
                 AVAudioVoiceProcessingOtherAudioDuckingConfiguration(enableAdvancedDucking: false, duckingLevel: .min)
+            // The mixer must be wired to the voice-processing output in that
+            // output's own format: left to connect itself, the output unit
+            // fails to initialise on a Mac (-10875, found on an M1 MacBook Pro).
+            let output = engine.outputNode.inputFormat(forBus: 0)
+            try objc { engine.connect(engine.mainMixerNode, to: engine.outputNode, format: output) }
         }
         try objc { VoiceStage.connect(player, in: engine, format: format, spatial: spatial) }
+    }
+
+    /// The microphone as the engine has it, for diagnosing.
+    public var inputDescription: String {
+        let format = engine.inputNode.outputFormat(forBus: 0)
+        return "\(format.channelCount) channel(s) at \(Int(format.sampleRate)) Hz"
     }
 
     public func start() throws {
@@ -216,9 +248,12 @@ public final class Duplex: AudioIO, @unchecked Sendable {
         // Before microphone access is granted the input has no format at all,
         // and a tap on it raises an exception rather than failing.
         guard format.sampleRate > 0, format.channelCount > 0 else { throw AudioFailure.noInput }
-        converter = AVAudioConverter(from: format, to: target)
-        // Voice processing can hand over more than one channel on a Mac.
-        converter?.downmix = true
+        // Voice processing on a Mac hands over several channels (5 or 7,
+        // each the same cleaned voice), and asked to downmix them the
+        // converter gives silence. So the first channel alone is converted.
+        guard let mono = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: format.sampleRate, channels: 1,
+                                       interleaved: false) else { throw AudioFailure.noInput }
+        converter = AVAudioConverter(from: mono, to: target)
         guard converter != nil else { throw AudioFailure.noInput }
         do {
             try objc {
@@ -282,6 +317,9 @@ public final class Duplex: AudioIO, @unchecked Sendable {
         lock.withLock { played.reference(from: start, to: end) }
     }
 
+    /// Each input channel's level just now, for diagnosing.
+    public var channelLevels: [Double] { lock.withLock { levels } }
+
     public var balance: (left: Double, right: Double)? {
         lock.withLock { sides.flatMap { Self.now - $0.at < 0.25 ? ($0.left, $0.right) : nil } }
     }
@@ -305,15 +343,26 @@ public final class Duplex: AudioIO, @unchecked Sendable {
 
     private func receive(_ pcm: AVAudioPCMBuffer) {
         guard let converter else { return }
-        if pcm.format.channelCount >= 2, let data = pcm.floatChannelData, pcm.frameLength > 0 {
+        if let data = pcm.floatChannelData, pcm.frameLength > 0 {
             func level(_ channel: Int) -> Double {
                 var sum: Float = 0
                 for i in 0..<Int(pcm.frameLength) { sum += data[channel][i] * data[channel][i] }
                 return Double((sum / Float(pcm.frameLength)).squareRoot())
             }
-            let (left, right) = (level(0), level(1))
-            lock.withLock { sides = (left, right, Self.now) }
+            let levels = (0..<Int(pcm.format.channelCount)).map(level)
+            lock.withLock {
+                self.levels = levels
+                // Two sides only from a stereo microphone: the echo
+                // canceller's extra channels are something else.
+                if !echoCancelling && levels.count == 2 { sides = (levels[0], levels[1], Self.now) }
+            }
         }
+        // The first channel alone: the cleaned voice when the canceller is on.
+        guard let data = pcm.floatChannelData,
+              let first = AVAudioPCMBuffer(pcmFormat: converter.inputFormat, frameCapacity: pcm.frameLength)
+        else { return }
+        first.frameLength = pcm.frameLength
+        first.floatChannelData![0].update(from: data[0], count: Int(pcm.frameLength))
         let capacity = AVAudioFrameCount(Double(pcm.frameLength) * 16_000 / pcm.format.sampleRate) + 32
         guard let out = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: capacity) else { return }
         var fed = false
@@ -325,10 +374,10 @@ public final class Duplex: AudioIO, @unchecked Sendable {
             }
             fed = true
             status.pointee = .haveData
-            return pcm
+            return first
         }
-        guard error == nil, let data = out.floatChannelData else { return }
-        buffer.append(Array(UnsafeBufferPointer(start: data[0], count: Int(out.frameLength))))
+        guard error == nil, let converted = out.floatChannelData else { return }
+        buffer.append(Array(UnsafeBufferPointer(start: converted[0], count: Int(out.frameLength))))
     }
 
     /// Ask for the microphone, if it hasn't been asked for yet.
@@ -388,3 +437,88 @@ public final class Blurt: @unchecked Sendable {
         #endif
     }
 }
+
+#if os(macOS)
+import CoreAudio
+
+/// The system's audio devices, by name.
+public enum AudioDevicesInfo {
+    public struct Device: Sendable {
+        public let id: AudioDeviceID
+        public let name: String
+        /// Built into the Mac, as opposed to virtual, USB or Bluetooth.
+        public let builtIn: Bool
+        public let outputs: Int
+        public let inputs: Int
+    }
+
+    public static func all() -> [Device] {
+        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDevices, mScope: kAudioObjectPropertyScopeGlobal,
+                                                 mElement: kAudioObjectPropertyElementMain)
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size) == noErr else { return [] }
+        var ids = [AudioDeviceID](repeating: 0, count: Int(size) / MemoryLayout<AudioDeviceID>.size)
+        guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &ids) == noErr else { return [] }
+        return ids.map { id in
+            Device(id: id, name: name(id), builtIn: transport(id) == kAudioDeviceTransportTypeBuiltIn,
+                   outputs: channels(id, kAudioObjectPropertyScopeOutput), inputs: channels(id, kAudioObjectPropertyScopeInput))
+        }
+    }
+
+    static func use(_ id: AudioDeviceID, on node: AVAudioIONode) throws {
+        guard let unit = node.audioUnit else { return }
+        var id = id
+        let status = AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0,
+                                          &id, UInt32(MemoryLayout<AudioDeviceID>.size))
+        if status != noErr { throw NSError(domain: NSOSStatusErrorDomain, code: Int(status)) }
+    }
+
+    static func transport(_ id: AudioDeviceID) -> UInt32 {
+        var address = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyTransportType, mScope: kAudioObjectPropertyScopeGlobal,
+                                                 mElement: kAudioObjectPropertyElementMain)
+        var value: UInt32 = 0
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        return AudioObjectGetPropertyData(id, &address, 0, nil, &size, &value) == noErr ? value : 0
+    }
+
+    static func channels(_ id: AudioDeviceID, _ scope: AudioObjectPropertyScope) -> Int {
+        var address = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyStreamConfiguration, mScope: scope,
+                                                 mElement: kAudioObjectPropertyElementMain)
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(id, &address, 0, nil, &size) == noErr, size > 0 else { return 0 }
+        let list = UnsafeMutableRawPointer.allocate(byteCount: Int(size), alignment: MemoryLayout<AudioBufferList>.alignment)
+        defer { list.deallocate() }
+        guard AudioObjectGetPropertyData(id, &address, 0, nil, &size, list) == noErr else { return 0 }
+        return UnsafeMutableAudioBufferListPointer(list.assumingMemoryBound(to: AudioBufferList.self)).reduce(0) { $0 + Int($1.mNumberChannels) }
+    }
+
+    static func name(_ id: AudioDeviceID) -> String {
+        var address = AudioObjectPropertyAddress(mSelector: kAudioObjectPropertyName, mScope: kAudioObjectPropertyScopeGlobal,
+                                                 mElement: kAudioObjectPropertyElementMain)
+        var name: Unmanaged<CFString>?
+        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        guard AudioObjectGetPropertyData(id, &address, 0, nil, &size, &name) == noErr, let name else { return "?" }
+        return name.takeRetainedValue() as String
+    }
+
+    /// The system's default devices, by name, for diagnosing.
+    public static func defaults() -> (input: String, output: String) {
+        (name(of: kAudioHardwarePropertyDefaultInputDevice), name(of: kAudioHardwarePropertyDefaultOutputDevice))
+    }
+
+    static func name(of selector: AudioObjectPropertySelector) -> String {
+        var address = AudioObjectPropertyAddress(mSelector: selector, mScope: kAudioObjectPropertyScopeGlobal,
+                                                 mElement: kAudioObjectPropertyElementMain)
+        var device = AudioDeviceID(0)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &device) == noErr
+        else { return "?" }
+        var nameAddress = AudioObjectPropertyAddress(mSelector: kAudioObjectPropertyName, mScope: kAudioObjectPropertyScopeGlobal,
+                                                     mElement: kAudioObjectPropertyElementMain)
+        var name: Unmanaged<CFString>?
+        var nameSize = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        guard AudioObjectGetPropertyData(device, &nameAddress, 0, nil, &nameSize, &name) == noErr, let name else { return "?" }
+        return name.takeRetainedValue() as String
+    }
+}
+#endif

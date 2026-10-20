@@ -97,6 +97,23 @@ public enum Echo {
     static func words(_ text: String) -> [String] {
         text.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber && $0 != "'" }).map(String.init)
     }
+
+    /// The end of a reply comes back off the room a moment after the voice
+    /// stops, and can be heard as the start of their turn: "like to do."
+    /// after "…what kind of stuff do you like to do?". Words at the start of
+    /// `heard` that are among the last few said are taken off; what is left
+    /// is theirs, and nothing left means it was all echo.
+    public static func strippingTail(_ heard: String, said: String, tail: Int = 10) -> String {
+        let ending = Set(words(said).suffix(tail))
+        guard !ending.isEmpty else { return heard }
+        var kept = Substring(heard)
+        while let range = kept.firstMatch(of: /^\s*([\p{L}\p{N}']+)[^\p{L}\p{N}']*/)?.range {
+            let word = kept[range].lowercased().filter { $0.isLetter || $0.isNumber || $0 == "'" }
+            guard ending.contains(word) else { break }
+            kept = kept[range.upperBound...]
+        }
+        return kept.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 }
 
 /// How loud the reply comes back into the microphone, learned while it talks,
@@ -161,5 +178,64 @@ public struct EchoLevel: Sendable {
     public static func level(_ samples: [Float]) -> Double {
         guard !samples.isEmpty else { return 0 }
         return (samples.reduce(0) { $0 + Double($1 * $1) } / Double(samples.count)).squareRoot()
+    }
+}
+
+/// How late the reply's own voice comes back into the microphone: the
+/// speakers' and microphone's latency and the room, 50 to 300 ms on a laptop.
+///
+/// The loudness of what was played and of what was heard, frame by frame,
+/// rise and fall together, one behind the other; the lag at which they match
+/// best is the delay. Everything comparing the microphone with what was
+/// played needs it: without it, an echo 150 ms late is measured against the
+/// wrong syllables, and the tail of a reply is still coming back after its
+/// voice has stopped.
+public struct EchoDelay: Sendable {
+    /// Seconds per frame: the voice detector's 32 ms.
+    public static let frame = 0.032
+    static let window = 94  // three seconds
+    static let longest = 15  // 480 ms
+    /// How well the two must match for the lag to be believed.
+    static let sure = 0.6
+
+    private var heard: [Double] = []
+    private var played: [Double] = []
+    /// Seconds; 0 until it has been measured.
+    public private(set) var delay = 0.0
+    public private(set) var match = 0.0
+
+    public init() {}
+
+    /// One frame's loudness at the microphone, and of what was being played.
+    public mutating func hear(mic: Double, played level: Double) {
+        heard.append(mic)
+        played.append(level)
+        if heard.count > Self.window {
+            heard.removeFirst(heard.count - Self.window)
+            played.removeFirst(played.count - Self.window)
+        }
+        guard heard.count == Self.window, played.contains(where: { $0 > 1e-3 }) else { return }
+        var best = (lag: 0, match: -1.0)
+        for lag in 0...Self.longest {
+            let a = Array(heard[lag...])
+            let b = Array(played[..<(played.count - lag)])
+            let match = Self.correlation(a, b)
+            if match > best.match { best = (lag, match) }
+        }
+        match = best.match
+        if best.match >= Self.sure { delay = Double(best.lag) * Self.frame }
+    }
+
+    static func correlation(_ a: [Double], _ b: [Double]) -> Double {
+        let n = Double(a.count)
+        guard n > 1 else { return 0 }
+        let (ma, mb) = (a.reduce(0, +) / n, b.reduce(0, +) / n)
+        var (ab, aa, bb) = (0.0, 0.0, 0.0)
+        for (x, y) in zip(a, b) {
+            ab += (x - ma) * (y - mb)
+            aa += (x - ma) * (x - ma)
+            bb += (y - mb) * (y - mb)
+        }
+        return aa > 0 && bb > 0 ? ab / (aa * bb).squareRoot() : 0
     }
 }
