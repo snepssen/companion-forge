@@ -249,6 +249,9 @@ struct SettingsView: View {
                 Toggle("Echo cancellation", isOn: $companion.echoCancellation)
                 Text("Lets it talk out of the speakers without hearing itself. Turn it off only on headphones.")
                     .font(.caption).foregroundStyle(.secondary)
+                Toggle("Spatial voice", isOn: $companion.spatialVoice)
+                Text("On AirPods, its voice comes from where your phone or Mac is, and stays there when you turn your head.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Section("Memory") {
                 LabeledContent("Remembers", value: companion.notes.count == 1 ? "1 thing" : "\(companion.notes.count) things")

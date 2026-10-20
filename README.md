@@ -73,6 +73,18 @@ panel or protoke's smooth outlines), the model, echo cancellation, what it
 remembers and what it has learned about your pauses. The speech bubble shows
 the whole conversation.
 
+## Where the voice comes from
+
+With the spatial voice on (Settings, on by default), the voice is placed half
+a metre in front of you and a little below, where a phone or tablet held at
+the chest is. On AirPods that track the head (iOS 18, macOS 15 and later) it
+stays there when you turn your head, so it sounds like the face talking
+rather than a voice inside your ears. On speakers it sounds as before. It is
+an `AVAudioEnvironmentNode` between the voice and the mixer of the same
+echo-cancelled engine; if that combination won't start on a device, it falls
+back to the plain voice and says so. `ccrun --spatial-check` plays through
+it silently. It has not yet been heard on AirPods.
+
 ## Moving it
 
 The face hangs behind the glass on a spring (`Sway`): move the phone and the

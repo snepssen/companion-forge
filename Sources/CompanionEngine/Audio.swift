@@ -116,6 +116,44 @@ func resample(_ samples: [Float], from rate: Double, to target: Double = 16_000)
     }
 }
 
+/// Where the voice comes from.
+///
+/// Spatial, it is a point in front of the listener and a little below, where
+/// a phone or tablet held at the chest is, rendered for whatever is playing
+/// it. On headphones that track the head (AirPods, iOS 18 and macOS 15 on),
+/// it stays there when they turn their head, so it sounds like the face
+/// talking rather than a voice inside their ears. On speakers it is the same
+/// voice it always was.
+enum VoiceStage {
+    /// Metres: right, up, and forward (forward is negative).
+    static let place = AVAudio3DPoint(x: 0, y: -0.15, z: -0.45)
+
+    static func connect(_ player: AVAudioPlayerNode, in engine: AVAudioEngine, format: AVAudioFormat, spatial: Bool) {
+        engine.attach(player)
+        guard spatial else {
+            engine.connect(player, to: engine.mainMixerNode, format: format)
+            return
+        }
+        let stage = AVAudioEnvironmentNode()
+        engine.attach(stage)
+        // Only a mono source is placed; the voice is mono.
+        engine.connect(player, to: stage, format: format)
+        let rate = engine.mainMixerNode.outputFormat(forBus: 0).sampleRate
+        engine.connect(stage, to: engine.mainMixerNode,
+                       format: AVAudioFormat(standardFormatWithSampleRate: rate > 0 ? rate : 48_000, channels: 2))
+        player.renderingAlgorithm = .auto
+        player.sourceMode = .pointSource
+        player.pointSourceInHeadMode = .mono
+        player.position = place
+        stage.outputType = .auto
+        stage.listenerPosition = AVAudio3DPoint(x: 0, y: 0, z: 0)
+        // Closer than the reference distance: no fading with distance, no room.
+        stage.distanceAttenuationParameters.referenceDistance = 1
+        stage.reverbParameters.enable = false
+        if #available(iOS 18.0, macOS 15.0, *) { stage.isListenerHeadTrackingEnabled = true }
+    }
+}
+
 /// The microphone and the voice on one audio engine, so the companion can talk
 /// out of the speakers without hearing itself.
 ///
@@ -128,6 +166,7 @@ func resample(_ samples: [Float], from rate: Double, to target: Double = 16_000)
 public final class Duplex: AudioIO, @unchecked Sendable {
     public let buffer = SampleBuffer()
     public let echoCancelling: Bool
+    public let spatial: Bool
     private let engine = AVAudioEngine()
     private let player = AVAudioPlayerNode()
     private let format: AVAudioFormat
@@ -141,9 +180,10 @@ public final class Duplex: AudioIO, @unchecked Sendable {
     /// The clock clips are scheduled on, and the face is drawn on.
     public static var now: Double { ProcessInfo.processInfo.systemUptime }
 
-    public init(sampleRate: Double, echoCancellation: Bool = true) throws {
+    public init(sampleRate: Double, echoCancellation: Bool = true, spatial: Bool = true) throws {
         format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: sampleRate, channels: 1, interleaved: false)!
         echoCancelling = echoCancellation
+        self.spatial = spatial
         #if os(iOS)
         let session = AVAudioSession.sharedInstance()
         try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetoothA2DP])
@@ -156,10 +196,7 @@ public final class Duplex: AudioIO, @unchecked Sendable {
             engine.inputNode.voiceProcessingOtherAudioDuckingConfiguration =
                 AVAudioVoiceProcessingOtherAudioDuckingConfiguration(enableAdvancedDucking: false, duckingLevel: .min)
         }
-        try objc {
-            engine.attach(player)
-            engine.connect(player, to: engine.mainMixerNode, format: format)
-        }
+        try objc { VoiceStage.connect(player, in: engine, format: format, spatial: spatial) }
     }
 
     public func start() throws {
@@ -278,7 +315,7 @@ public final class Blurt: @unchecked Sendable {
     public let start: Double
     public let end: Double
 
-    public init(_ samples: [Float], rate: Double) throws {
+    public init(_ samples: [Float], rate: Double, spatial: Bool = true, volume: Float = 1) throws {
         let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: rate, channels: 1, interleaved: false)!
         guard !samples.isEmpty, let pcm = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(samples.count))
         else { throw AudioFailure.noInput }
@@ -290,8 +327,8 @@ public final class Blurt: @unchecked Sendable {
         #endif
         let (engine, player) = (AVAudioEngine(), AVAudioPlayerNode())
         try objc {
-            engine.attach(player)
-            engine.connect(player, to: engine.mainMixerNode, format: format)
+            VoiceStage.connect(player, in: engine, format: format, spatial: spatial)
+            engine.mainMixerNode.outputVolume = volume
             engine.prepare()
         }
         try engine.start()

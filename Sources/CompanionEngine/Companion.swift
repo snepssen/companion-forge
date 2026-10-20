@@ -57,6 +57,17 @@ public final class Companion {
         }
     }
 
+    /// Place the voice where the device is, and keep it there as the head
+    /// turns on headphones that track it. Remembered; applied at once.
+    public var spatialVoice: Bool = UserDefaults.standard.object(forKey: "spatialVoice") as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(spatialVoice, forKey: "spatialVoice")
+            guard spatialVoice != oldValue, phase == .live else { return }
+            pause()
+            Task { await start() }
+        }
+    }
+
     /// Start listening by itself once ready. Off only for measuring (ccrun),
     /// where nobody is there to be listened to.
     public var listensWhenReady = true
@@ -181,8 +192,20 @@ public final class Companion {
             return
         }
         do {
-            let audio = try Duplex(sampleRate: voice.sampleRate, echoCancellation: echoCancellation)
-            try audio.start()
+            let echoCancellation = echoCancellation
+            func open(spatial: Bool) throws -> Duplex {
+                let audio = try Duplex(sampleRate: voice.sampleRate, echoCancellation: echoCancellation, spatial: spatial)
+                try audio.start()
+                return audio
+            }
+            let audio: Duplex
+            if spatialVoice, let spatial = try? open(spatial: true) {
+                audio = spatial
+            } else {
+                // Better heard plainly than not at all.
+                audio = try open(spatial: false)
+                if spatialVoice { notice = "The spatial voice wouldn't start here, so it's speaking plainly." }
+            }
             self.audio = audio
             let log = try? ConversationLog(directory: Resources.conversations)
             let (stream, continuation) = AsyncStream<LoopEvent>.makeStream()
@@ -247,7 +270,7 @@ public final class Companion {
         guard blurt == nil, let voice, phase == .ready || phase == .needsModel else { return }
         do {
             let samples = try await Task.detached { try voice.speak(complaint) }.value
-            let blurt = try Blurt(samples, rate: voice.sampleRate)
+            let blurt = try Blurt(samples, rate: voice.sampleRate, spatial: spatialVoice)
             self.blurt = blurt
             face.say(SpokenWord.estimate(complaint, duration: blurt.end - blurt.start), at: blurt.start)
             face.set(.speaking, at: blurt.start)

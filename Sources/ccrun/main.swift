@@ -12,6 +12,7 @@
 //   ccrun --window <file.png>   the app's window, loaded as the app loads it
 //   ccrun --memory              earlier conversations written up, then recalled
 //   ccrun --icon <file.png>     the app icon, 1024 px
+//   ccrun --spatial-check       the spatial voice's audio graph, run silently
 //   ccrun --recall              how the embedder ranks notes, for the thresholds
 //   ccrun --long [--anticipate] a long conversation: prompt re-reading and first-word times
 //
@@ -21,6 +22,7 @@ import CompanionCore
 import CompanionEngine
 import CompanionUI
 import Foundation
+import AVFoundation
 import ImageIO
 import SwiftUI
 import UniformTypeIdentifiers
@@ -284,6 +286,37 @@ final class Clock: @unchecked Sendable {
     private var first: Double?
     var at: Double? { lock.withLock { first } }
     func mark() { lock.withLock { if first == nil { first = Duplex.now } } }
+}
+
+/// The spatial voice's audio graph, built and run: a sentence played
+/// silently through it, and the echo-cancelled engine put together with it.
+func spatialCheck() async throws {
+    guard let voiceURL = Resources.voice, let espeak = Resources.espeakData else { print("no voice"); return }
+    let voice = try Voice(model: voiceURL, espeakData: espeak)
+    let samples = try voice.speak("Can you hear where I am?")
+    let order = option("--spatial-check") == "plain-first" ? [false, true] : [true, false]
+    for spatial in order {
+        print("  \(spatial ? "spatial" : "plain"): starting"); fflush(stdout)
+        let blurt = try Blurt(samples, rate: voice.sampleRate, spatial: spatial, volume: 0)
+        print("  started"); fflush(stdout)
+        try await Task.sleep(for: .seconds(blurt.end - Duplex.now + 0.1))
+        blurt.stop()
+        print(String(format: "played %.2f s %@, silently", blurt.end - blurt.start, spatial ? "placed in front" : "as before"))
+        fflush(stdout)
+    }
+    // Touching the microphone's side of the engine waits for permission to
+    // use it, and from a terminal nobody may be there to give it.
+    guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else {
+        print("the echo-cancelled engine wasn't tried: this terminal hasn't been allowed the microphone")
+        return
+    }
+    _ = try Duplex(sampleRate: voice.sampleRate, echoCancellation: true, spatial: true)
+    print("the echo-cancelled engine takes the spatial stage")
+}
+
+if CommandLine.arguments.contains("--spatial-check") || option("--spatial-check") != nil {
+    try await spatialCheck()
+    exit(0)
 }
 
 if CommandLine.arguments.contains("--long") {
