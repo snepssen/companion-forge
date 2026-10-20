@@ -60,6 +60,17 @@ questions as sad as sympathy.
 The mouth follows the words the voice is saying, timed by their spelling
 across each clip.
 
+## The window
+
+The face fills it, with the last thing each of you said underneath, dimming
+once the conversation goes quiet, and one Talk button (or Space). While it
+listens, the panel's unlit cells brighten with your voice; while it loads,
+it is half asleep. Double-click or double-tap the face to leave only the
+face, for a tablet on a stand. Settings has the visor's colour and style (LED
+panel or protoke's smooth outlines), the model, echo cancellation, what it
+remembers and what it has learned about your pauses. The speech bubble shows
+the whole conversation.
+
 ## Memory
 
 Three layers, each pointing at the one below:

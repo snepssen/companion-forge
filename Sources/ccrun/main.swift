@@ -7,6 +7,7 @@
 //   ccrun --echo 0.3            the same with far more echo leaking through
 //   ccrun --model qwen3-4b-instruct-2507-4bit
 //   ccrun --faces <folder>      the face in each mood and some visemes, as PNGs
+//         [--style smooth] [--colour magenta] [--hearing 0.05]   (also for --window)
 //   ccrun --window <file.png>   the app's window, loaded as the app loads it
 //   ccrun --memory              earlier conversations written up, then recalled
 //   ccrun --icon <file.png>     the app icon, 1024 px
@@ -64,11 +65,20 @@ func resample(_ samples: [Float], from rate: Double, to target: Double = 16_000)
 
 // MARK: faces
 
+/// --style, --colour and --hearing, for the renders.
+@MainActor
+func look() -> (style: VisorStyle, colour: VisorColour, hearing: Double) {
+    (VisorStyle(rawValue: option("--style") ?? "") ?? .panel, VisorColour(rawValue: option("--colour") ?? "") ?? .cyan,
+     Double(option("--hearing") ?? "0") ?? 0)
+}
+
 @MainActor
 func faces(into folder: URL) throws {
     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     func write(_ name: String, _ pose: Pose) throws {
-        guard let image = FaceView.image(pose, size: CGSize(width: 640, height: 400)),
+        let look = look()
+        guard let image = FaceView.image(pose, size: CGSize(width: 640, height: 400), colour: look.colour.color,
+                                         style: look.style, hearing: look.hearing),
               let destination = CGImageDestinationCreateWithURL(folder.appending(path: "\(name).png") as CFURL,
                                                                 UTType.png.identifier as CFString, 1, nil)
         else { throw NSError(domain: "ccrun", code: 1, userInfo: [NSLocalizedDescriptionKey: "Couldn't render \(name)"]) }
@@ -76,7 +86,7 @@ func faces(into folder: URL) throws {
         guard CGImageDestinationFinalize(destination) else { return }
         print("  \(folder.appending(path: "\(name).png").path)")
     }
-    for mood in [Mood.idle, .listening, .thinking, .speaking, .cheerful, .surprised] {
+    for mood in [Mood.idle, .listening, .thinking, .speaking, .cheerful, .surprised, .waking] {
         var performance = FacePerformance(origin: 0)
         performance.set(mood, at: 0)
         try write("mood-\(mood.rawValue)", performance.pose(at: 2))
@@ -91,6 +101,8 @@ func faces(into folder: URL) throws {
 /// The app's window as the app loads it, rendered once it is ready.
 @MainActor
 func window(into file: URL) async throws {
+    UserDefaults.standard.set(look().style.rawValue, forKey: "visorStyle")
+    UserDefaults.standard.set(look().colour.rawValue, forKey: "visorColour")
     let companion = Companion()
     await companion.prepare()
     print("phase: \(companion.phase)")

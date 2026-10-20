@@ -241,6 +241,8 @@ public enum Mood: String, Sendable {
     case idle, listening, thinking, speaking, surprised
     /// Saying something glad: protoke's happy eyes, ^ ^.
     case cheerful
+    /// Still loading its models: half asleep.
+    case waking
 
     public var expression: Expression {
         switch self {
@@ -250,6 +252,7 @@ public enum Mood: String, Sendable {
         case .speaking: .visor
         case .surprised: .wide
         case .cheerful: .happy
+        case .waking: .sleepy
         }
     }
 

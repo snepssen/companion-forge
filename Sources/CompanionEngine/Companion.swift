@@ -21,6 +21,7 @@ public final class Companion {
         public let speaker: Turn.Speaker
         public var text: String
         public var interrupted = false
+        public var at = Date()
     }
 
     public private(set) var phase: Phase = .idle
@@ -77,6 +78,8 @@ public final class Companion {
 
     public func prepare() async {
         guard phase == .idle || phase.isFailure else { return }
+        face.set(.waking, at: Duplex.now)
+        defer { face.set(.idle, at: Duplex.now) }
         do {
             guard let voiceURL = Resources.voice, let espeak = Resources.espeakData else {
                 throw Problem("The voice is missing: build with build.sh, or keep voice-forge beside this checkout.")
@@ -113,6 +116,8 @@ public final class Companion {
             return
         }
         phase = .loading("Loading \(model.name)…")
+        face.set(.waking, at: Duplex.now)
+        defer { face.set(.idle, at: Duplex.now) }
         brain = nil
         let brain = try await Brain(model: model, at: directory)
         try await brain.warmUp()
@@ -269,6 +274,7 @@ public final class Companion {
             face.say(words, at: start)
             if let index = lines.lastIndex(where: { $0.id == replyLine }) {
                 lines[index].text += " " + text
+                lines[index].at = Date()
             } else {
                 append(.companion, text)
                 replyLine = lines.last?.id
