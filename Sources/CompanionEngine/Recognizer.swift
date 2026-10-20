@@ -26,7 +26,9 @@ public actor Recognizer {
         try Task.checkCancellation()
         guard samples.count >= 16_000 * 3 / 10 else { return "" }  // FluidAudio's minimum
         var state = TdtDecoderState.make()
-        let result = try await manager.transcribe(samples, decoderState: &state, language: nil)
+        // English expected: left to guess, Parakeet wrote the name "Lin" in
+        // Cyrillic once ("Лин"). The hint keeps it to the right alphabet.
+        let result = try await manager.transcribe(samples, decoderState: &state, language: .english)
         return result.text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

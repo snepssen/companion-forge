@@ -274,9 +274,13 @@ check("with their turns", written.first?.turns == 3...5 && written.first?.text =
 check("lasting is marked and taken off", written[1].lasting && written[1].text == "Their name is Sam.")
 check("turns are held to the conversation", written[2].turns == 10...10)
 check("NONE is nothing", Remembering.parse("NONE", turns: 0...10).isEmpty)
+check("what they call it is about it, and lasting",
+      Remembering.parse("- [10] They call Companion Tom.", turns: 0...12).map { "\($0.turns) \($0.text) \($0.lasting)" }
+          == ["10...10 They call you Tom. true"])
 check("who they are is lasting, marked or not",
       ["Their name is Sam.", "They work as a nurse on night shifts.", "They has a dog named Biscuit, a beagle.",
-       "Their sister Ana is called Ana.", "They live in York with their partner.", "Their dog is called Biscuit."]
+       "Their sister Ana is called Ana.", "They live in York with their partner.", "Their dog is called Biscuit.",
+       "They call you Tom."]
           .allSatisfy(Remembering.looksLasting))
 check("what happened isn't",
       ["They ran out of eggs.", "Their sister Ana is visiting next Saturday.", "They walked by the river."]

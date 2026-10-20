@@ -195,13 +195,17 @@ public enum Remembering {
     public static let fewest = 2
 
     public static let instructions = """
-    You keep the memory of a companion that talks out loud with one person. Read the conversation and write \
-    down what is worth remembering about them later, as short notes, one per line, each starting with the \
-    numbers of the turns it comes from, like this:
+    You are a companion that talks out loud with one person, and you keep your memory of them. In the \
+    conversation, "Companion" is you and "Person" is them. Read it and write down what is worth remembering \
+    about them later, as short notes, one per line, each starting with the numbers of the turns it comes \
+    from, like this:
     - [3-5] They walked by the river this evening and loved it.
     - [8] Their sister is visiting next week.
     - [11] They work in a bakery. (lasting)
-    Begin every note with "They" or "Their". Worth remembering: their name, facts about them and the people \
+    - [14] They call you Pip. (lasting)
+    Notes are about them, never about you, and never something you said that they didn't. Begin every note \
+    with "They" or "Their". The one thing to note about you is what they call you or what you are to them, \
+    as "They call you …", always ending (lasting). Worth remembering: their name, facts about them and the people \
     and pets in their life, what they like and dislike, plans and promises, things that happened to them, how \
     they felt about something that mattered, anything they asked you to remember. Not worth it: greetings, \
     small talk, general questions, what the companion suggested unless they took it up, anything you already \
@@ -238,6 +242,8 @@ public enum Remembering {
             let low = min(max(min(first, last), valid.lowerBound), valid.upperBound)
             let high = min(max(max(first, last), valid.lowerBound), valid.upperBound)
             var text = String(match.3)
+            // Its own name for itself in the transcript, back to "you".
+            text = text.replacing(/\b(?:the )?[Cc]ompanion\b/) { _ in "you" }
             let lasting = text.range(of: "(lasting)", options: .caseInsensitive) != nil
             text = text.replacingOccurrences(of: "(lasting)", with: "", options: .caseInsensitive)
                 .trimmingCharacters(in: .whitespaces)
@@ -252,7 +258,7 @@ public enum Remembering {
         let people = "sister|brother|mom|mum|mother|father|dad|partner|wife|husband|girlfriend|boyfriend|son|daughter"
             + "|kid|child|children|friend|best friend|roommate|flatmate|dog|cat|pet|puppy|kitten"
         let patterns = [
-            "^their name is ", "^they(?:'re| are) called ", "^they (?:work|works) (?:as|at|in|for|on) ",
+            "^their name is ", "^they(?:'re| are) called ", "^they call you ", "^they (?:work|works) (?:as|at|in|for|on) ",
             "^they (?:live|lives) (?:in|at|near|with) ", "^they are \\d+ years old",
             "^their (?:\(people)) (?:\\w+ )?(?:is|are) (?:called|named) ",
             "^they (?:have|has|own|owns) an? (?:\(people))(?: \\w+)?,? (?:called|named) ",

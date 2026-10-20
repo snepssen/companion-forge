@@ -210,6 +210,13 @@ func memoryRun() async throws {
              (.person, "Oh, and my sister Ana is visiting next Saturday. I'm a bit nervous, we haven't talked in a year."),
              (.companion, "That's a big visit. I hope it goes well."),
              (.person, "Anyway, what's the capital of Australia?"), (.companion, "Canberra.")]),
+        (1, [(.person, "No, we have a new roommate."), (.companion, "Oh really? A roommate?"),
+             (.person, "Yes, it's you."),
+             (.companion, "Wait, me? You mean you have a new roommate, and I am that roommate?"),
+             (.person, "Yes."), (.companion, "That's kind of weird. What's your name?"), (.person, "Lin"),
+             (.companion, "Lin. Okay. It's nice to meet you."), (.person, "Nice to meet you too. What's your name?"),
+             (.companion, "I don't really have a name. You can just call me Companion."),
+             (.person, "Okay, your name will be Tom."), (.companion, "Tom sounds good. I like that.")]),
         (2, [(.person, "I've started learning the guitar. My fingers hurt so much."),
              (.companion, "That's normal at first. What are you practising?"),
              (.person, "Just G, C and D for now. I want to play a song for Ana when she comes."),
@@ -335,6 +342,14 @@ func lipsync(_ text: String) throws {
         print("  the voice gave no timings")
     }
     print("  from spelling:   \(show(Visemes.timeline(SpokenWord.estimate(text, duration: seconds))))")
+    // How open the mouth is, every 50 ms, as the face draws it.
+    for (label, spans) in [("voice", mouth ?? []), ("spelling", Visemes.timeline(SpokenWord.estimate(text, duration: seconds)))] {
+        var face = FacePerformance(origin: 0)
+        face.set(.speaking, at: 0)
+        face.say(spans, at: 1)
+        let openness = stride(from: 1.0, to: 1 + seconds, by: 0.05).map { face.pose(at: $0).face.mouth.aperture }
+        print("  mouth open (\(label)): " + openness.map { String(format: "%.1f", $0) }.joined(separator: " "))
+    }
 }
 
 /// The microphone through the app's own audio engine, with and without the
