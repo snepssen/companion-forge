@@ -15,6 +15,7 @@ answers in a voice, and learns how you pause. Everything runs locally.
 | language model | Gemma 4 E4B, 4-bit MLX (Qwen3 4B or Gemma 4 E2B for 8 GB phones) |
 | voice | voice-forge's English snepssen, on voice-core's Piper |
 | face | protoke's visor, ported to Swift and drawn as an LED panel |
+| memory | bge-small-en-v1.5 on MLX, over notes the language model writes |
 
 ## Turns, not timers
 
@@ -58,9 +59,39 @@ across each clip.
 
 ## Memory
 
-Every conversation is written in full, one JSON line per turn, to
-`~/Library/Application Support/Companion/Conversations/`. That is the bottom
-of the memory. Summaries that point back into these logs come next.
+Three layers, each pointing at the one below:
+
+- **Conversations**, in full, one JSON line per turn, in
+  `~/Library/Application Support/Companion/Conversations/`. Nothing is
+  decided here about what matters.
+- **Notes**: short sentences about the person, written by the language model
+  once a conversation has been quiet for 45 seconds or Talk is stopped. Each
+  note names the conversation and turns it came from. Small talk, greetings
+  and general questions are left out ("what's the capital of Australia" makes
+  no note). A note that says the same thing as an older one replaces it.
+- **What it knows about you**: notes about who you are (your name, your work,
+  the people and pets in your life) go into every reply. A 4B model asked to
+  mark these seldom does, so `Remembering.looksLasting` recognises them too.
+
+Before each reply, what you just said is compared with the notes by meaning,
+using bge-small-en-v1.5 on MLX (134 MB, downloaded on first launch; Apple's
+built-in sentence embedding ranked too poorly to use). A note must score 0.45
+and be within 0.12 of the best match to be brought up, which keeps "work was
+exhausting" to the note about night shifts. What comes to mind goes in just
+before your words, so the rest of the conversation stays in the model's
+cache. When you ask about the past ("do you remember…", "last time…"), the
+original turns behind the best note are read back word for word.
+
+Writing notes gives way to talking: it stops the moment you speak and picks
+up where it left off next time it is quiet. Settings shows everything it
+remembers, with a button to forget any of it, or all of it and the logs.
+
+Measured with `ccrun --memory` on Gemma 4 E4B: two earlier conversations,
+16 turns, became 7 notes in 9.6 s, three of them recognised as lasting.
+Recalling takes 7 to 25 ms. "Do you remember what I told you about my
+sister?" brought up the note and the turns behind it, and the reply was "You
+mentioned your sister Ana is visiting." "What's the weather like?" brought up
+nothing.
 
 ## Build
 
@@ -78,6 +109,7 @@ reply's echo leaking back into the "microphone" at a chosen level:
     .build/xcode/Build/Products/Release/ccrun              # a conversation with an interruption
     .build/xcode/Build/Products/Release/ccrun --echo 0.3   # with far more echo
     .build/xcode/Build/Products/Release/ccrun --faces /tmp/faces
+    .build/xcode/Build/Products/Release/ccrun --memory     # notes written, then recalled
 
 Measured on this Mac with Gemma 4 E4B, 2026-10-20: the reply starts
 **0.9 to 1.5 s** after you stop talking. With the echo leaking back at 0.05
@@ -94,8 +126,6 @@ one shared package once both apps settle on them.
 
 ## Next
 
-- Memory: summaries of each conversation, with pointers into the logs,
-  retrieved by meaning before each reply.
 - The iPad and iPhone apps: the same engine and views, as translate-core's are.
 - Desktop beyond the Mac, and Android: llama.cpp and sherpa-onnx, as
   translate-core's Android port runs Silero, Parakeet and Piper already.

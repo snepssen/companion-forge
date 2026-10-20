@@ -18,6 +18,7 @@ public enum Resources {
 
     public static var conversations: URL { support.appending(path: "Conversations") }
     public static var timing: URL { support.appending(path: "turn-timing.json") }
+    public static var memory: URL { support.appending(path: "memory.json") }
 
     /// voice-forge's English snepssen voice.
     public static var voice: URL? {

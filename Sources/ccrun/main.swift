@@ -8,6 +8,8 @@
 //   ccrun --model qwen3-4b-instruct-2507-4bit
 //   ccrun --faces <folder>      the face in each mood and some visemes, as PNGs
 //   ccrun --window <file.png>   the app's window, loaded as the app loads it
+//   ccrun --memory              earlier conversations written up, then recalled
+//   ccrun --recall              how the embedder ranks notes, for the thresholds
 //
 // Built with build.sh's xcodebuild (MLX needs its Metal library beside it):
 //   .build/xcode/Build/Products/Release/ccrun
@@ -89,6 +91,112 @@ func window(into file: URL) async throws {
 
 if let file = option("--window") {
     try await window(into: URL(fileURLWithPath: file))
+    exit(0)
+}
+
+/// How the embedder ranks a few notes for a few things someone might say,
+/// and how alike it finds a repeat and a change: for setting the thresholds.
+func recall() async throws {
+    let embedder = try await Embedder.load { print(String(format: "  downloading the embedder… %.0f%%", $0 * 100)) }
+    let notes = ["They have no eggs at home.", "They walked by the river this evening and loved it.",
+                 "Their dog is called Biscuit.", "They work as a nurse on night shifts.",
+                 "They are learning to play the guitar.", "Their sister Ana is visiting next week."]
+    let queries = ["What should I make for breakfast?", "I took the dog out earlier", "work was exhausting tonight",
+                   "I practiced some chords today", "do you remember where I went walking?", "My dog Biscuit is sick.",
+                   "Guess who's coming to stay with me?", "What's the weather like?"]
+    let noteVectors = await embedder.embed(notes)
+    for query in queries {
+        let vector = await embedder.embed([query], query: true)[0]
+        print(query)
+        for (note, noteVector) in zip(notes, noteVectors) {
+            print(String(format: "   %.2f  %@", MemoryStore.cosine(vector, noteVector), note))
+        }
+    }
+    let pairs = [("They have no eggs at home.", "They don't have any eggs in the house."),
+                 ("Their dog is called Biscuit.", "Their dog Biscuit is three years old."),
+                 ("They live in York.", "They moved to Leeds."),
+                 ("They work as a nurse on night shifts.", "They are learning to play the guitar.")]
+    for (a, b) in pairs {
+        let v = await embedder.embed([a, b])
+        print(String(format: "%.2f  %@ / %@", MemoryStore.cosine(v[0], v[1]), a, b))
+    }
+}
+
+/// Two earlier conversations written up by the model, then new things said
+/// to it: what comes to mind, and the reply with it. In a folder of its own,
+/// so the app's memory is untouched.
+func memoryRun() async throws {
+    let folder = FileManager.default.temporaryDirectory.appending(path: "ccrun-memory-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let conversations = folder.appending(path: "Conversations")
+    let model = ModelCatalog.model(option("--model")) ?? ModelCatalog.recommended
+    guard let directory = ModelStore.location(of: model) else { print("\(model.name) isn't downloaded"); return }
+    let brain = try await Brain(model: model, at: directory)
+    let embedder = try await Embedder.load()
+    let memory = Memory(file: folder.appending(path: "memory.json"), conversations: conversations, embedder: embedder)
+
+    let day: TimeInterval = 86_400
+    let earlier: [(daysAgo: Double, turns: [(Turn.Speaker, String)])] = [
+        (6, [(.person, "Hi! I'm Sam, by the way."), (.companion, "Nice to meet you, Sam!"),
+             (.person, "I work night shifts as a nurse, so I'm usually up at odd hours."),
+             (.companion, "That sounds tiring. How do you wind down?"),
+             (.person, "Mostly walks with my dog Biscuit. He's a beagle and he's obsessed with the river."),
+             (.companion, "Biscuit sounds like great company."),
+             (.person, "Oh, and my sister Ana is visiting next Saturday. I'm a bit nervous, we haven't talked in a year."),
+             (.companion, "That's a big visit. I hope it goes well."),
+             (.person, "Anyway, what's the capital of Australia?"), (.companion, "Canberra.")]),
+        (2, [(.person, "I've started learning the guitar. My fingers hurt so much."),
+             (.companion, "That's normal at first. What are you practising?"),
+             (.person, "Just G, C and D for now. I want to play a song for Ana when she comes."),
+             (.companion, "That's a lovely idea."),
+             (.person, "Also I ran out of eggs, I keep forgetting to buy them."), (.companion, "Add them to a list!")]),
+    ]
+    for conversation in earlier {
+        let started = Date() - conversation.daysAgo * day
+        let log = try ConversationLog(directory: conversations, started: started)
+        for (index, (speaker, text)) in conversation.turns.enumerated() {
+            try log.append(Turn(speaker, text, at: started + Double(index) * 20))
+        }
+    }
+
+    let began = Duplex.now
+    let added = try await memory.writeUp(with: brain)
+    print(String(format: "wrote %d notes in %.1f s:", added, Duplex.now - began))
+    for note in await memory.notes {
+        print("  \(note.lasting ? "(lasting) " : "")[\(note.turns.lowerBound)-\(note.turns.upperBound)] \(note.text)")
+    }
+    let again = try await memory.writeUp(with: brain)
+    print("written up again: \(again) new notes")
+
+    let asked = ["What should I make for breakfast?", "Ugh, work was exhausting tonight.",
+                 "Do you remember what I told you about my sister?", "What's the weather like where you are?",
+                 "I practised those chords again today."]
+    for text in asked {
+        print("")
+        print("you: \(text)")
+        let started = Duplex.now
+        let recollection = await memory.recollect(for: text)
+        print(String(format: "  recalled in %.0f ms:", (Duplex.now - started) * 1000))
+        for (note, score) in await memory.scores(for: text) { print(String(format: "      %.3f %@", score, note.text)) }
+        for note in recollection.notes { print("    \(note.text)") }
+        if !recollection.excerpt.isEmpty {
+            print("    and word for word:")
+            for turn in recollection.excerpt { print("      \(turn.speaker == .person ? "them" : "it"): \(turn.text)") }
+        }
+        if !CommandLine.arguments.contains("--no-replies") {
+            let reply = try await brain.reply(to: [Turn(.person, text)], remembering: recollection) { _ in }
+            print("  companion: \(reply)")
+        }
+    }
+}
+
+if CommandLine.arguments.contains("--memory") {
+    try await memoryRun()
+    exit(0)
+}
+
+if CommandLine.arguments.contains("--recall") {
+    try await recall()
     exit(0)
 }
 
@@ -250,6 +358,9 @@ enum Report {
     switch event {
     case let .mood(mood): say("face: \(mood.rawValue)")
     case let .heard(text): say("heard: \(text)")
+    case let .recalled(recollection):
+        for note in recollection.notes { say("recalled: \(note.text)") }
+        for turn in recollection.excerpt { say("  word for word: \(turn.text)") }
     case let .saying(text, _, start):
         tally.lock.withLock {
             if tally.waitingForReply {

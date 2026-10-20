@@ -18,6 +18,8 @@ public actor Brain {
     public let model: ChatModel
     private let context: ModelContext
     private var cache: PromptCache
+    /// Writing notes has its own: the conversation's stays as it was.
+    private var notesCache: PromptCache
     private let stops: Set<Int>
     /// The most a reply runs to: about a minute of speech, and a stop for a
     /// model that has started a list.
@@ -36,6 +38,7 @@ public actor Brain {
                 .map { context.tokenizer.convertTokenToId($0) }).compactMap { $0 })
             .union(context.configuration.extraEOSTokens.compactMap { context.tokenizer.convertTokenToId($0) })
         cache = try PromptCache(context.model)
+        notesCache = try PromptCache(context.model)
         self.model = model
         self.context = context
     }
@@ -45,17 +48,31 @@ public actor Brain {
         _ = try reply(to: [Turn(.person, "Hi.")]) { _ in }
     }
 
-    /// A reply to the conversation so far, its text handed to `emit` as it is
-    /// written. Cancelling the task stops it between tokens and keeps the cache.
+    /// A reply to the conversation so far, with what the memory brought up,
+    /// its text handed to `emit` as it is written. Cancelling the task stops
+    /// it between tokens and keeps the cache.
     @discardableResult
-    public func reply(to turns: [Turn], emit: @Sendable (String) -> Void) throws -> String {
+    public func reply(to turns: [Turn], remembering recollection: Recollection = Recollection(),
+                      emit: @Sendable (String) -> Void) throws -> String {
+        try generate(Prompts.messages(turns, remembering: recollection), cache: &cache,
+                     parameters: GenerateParameters(maxTokens: Self.longest, temperature: 0.7, topP: 0.9), emit: emit)
+    }
+
+    /// Notes from a conversation, as `Remembering` asks for them.
+    public func write(_ instructions: String, _ text: String) throws -> String {
+        try generate([["role": "system", "content": instructions], ["role": "user", "content": text]], cache: &notesCache,
+                     parameters: GenerateParameters(maxTokens: 320, temperature: 0.2)) { _ in }
+    }
+
+    private func generate(_ messages: [[String: any Sendable]], cache: inout PromptCache, parameters: GenerateParameters,
+                          emit: @Sendable (String) -> Void) throws -> String {
         let prompt = try context.tokenizer.applyChatTemplate(
-            messages: Prompts.messages(turns), tools: nil,
+            messages: messages, tools: nil,
             additionalContext: ["enable_thinking": false])  // Gemma 4 otherwise reasons aloud: seconds a turn
         try Task.checkCancellation()
         let fresh = try cache.prepare(for: prompt)
         var iterator = try TokenIterator(input: LMInput(tokens: MLXArray(fresh)), model: context.model, cache: cache.kv,
-                                         parameters: GenerateParameters(maxTokens: Self.longest, temperature: 0.7, topP: 0.9))
+                                         parameters: parameters)
         var produced: [Int] = []
         var written = ""
         while let token = iterator.next() {
@@ -90,8 +107,13 @@ enum Prompts {
     /// The conversation as chat messages. Turns by the same speaker in a row
     /// (a reply cut off before it said anything) are joined: chat templates
     /// expect the roles to alternate, and some refuse otherwise.
-    static func messages(_ turns: [Turn]) -> [[String: any Sendable]] {
-        var messages: [[String: any Sendable]] = [["role": "system", "content": system]]
+    ///
+    /// What it knows about them goes in the instructions, which change only
+    /// when a note is written. What came to mind for this turn goes before
+    /// their last words, so everything earlier stays in the attention cache.
+    static func messages(_ turns: [Turn], remembering recollection: Recollection = Recollection()) -> [[String: any Sendable]] {
+        let instructions = [system, recollection.knowing].compactMap { $0 }.joined(separator: "\n\n")
+        var messages: [[String: any Sendable]] = [["role": "system", "content": instructions]]
         var previous: Turn.Speaker?
         for turn in turns.suffix(recent) {
             let role = turn.speaker == .person ? "user" : "assistant"
@@ -103,6 +125,10 @@ enum Prompts {
                 messages.append(["role": role, "content": text])
             }
             previous = turn.speaker
+        }
+        if let reminder = recollection.reminder(), let last = messages.last?["content"] as? String,
+           messages.last?["role"] as? String == "user" {
+            messages[messages.count - 1]["content"] = reminder + "\n\n" + last
         }
         return messages
     }

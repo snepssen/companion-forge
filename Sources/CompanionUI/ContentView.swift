@@ -44,6 +44,16 @@ public struct ContentView: View {
                 }
             }
         }
+        .overlay(alignment: .topLeading) {
+            if !companion.recalled.isEmpty {
+                Label(companion.recalled.map(\.text).joined(separator: " · "), systemImage: "sparkles")
+                    .font(.caption)
+                    .foregroundStyle(Color.cyan.opacity(0.55))
+                    .lineLimit(1)
+                    .offset(y: -22)
+                    .accessibilityLabel("Remembering: \(companion.recalled.map(\.text).joined(separator: ", "))")
+            }
+        }
         .frame(minHeight: 64, alignment: .bottom)
         .animation(.easeOut(duration: 0.2), value: companion.lines)
     }
@@ -98,9 +108,10 @@ public struct ContentView: View {
     }
 }
 
-/// The model, echo cancellation, and what it has learned about your pauses.
+/// The model, echo cancellation, memory, and what it has learned about your pauses.
 struct SettingsView: View {
     @Bindable var companion: Companion
+    @State private var showingMemory = false
 
     var body: some View {
         Form {
@@ -131,6 +142,17 @@ struct SettingsView: View {
                 Text("Lets it talk out of the speakers without hearing itself. Takes effect the next time you press Talk.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            Section("Memory") {
+                LabeledContent("Remembers", value: companion.notes.count == 1 ? "1 thing" : "\(companion.notes.count) things")
+                if companion.writingUp {
+                    Text("Writing up the last conversation…").font(.caption).foregroundStyle(.secondary)
+                }
+                Button("Show what it remembers…") { showingMemory = true }
+                    .disabled(companion.notes.isEmpty)
+                Text("Notes are written from your conversations when they go quiet, and the full conversations are kept "
+                     + "on this Mac so it can look back at what was said.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section("Turn timing") {
                 let timing = companion.timing
                 LabeledContent("After a question", value: seconds(timing.wait(after: .question)))
@@ -143,6 +165,7 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .frame(width: 400)
         .fixedSize(horizontal: false, vertical: true)
+        .sheet(isPresented: $showingMemory) { MemoryView(companion: companion) }
     }
 
     private func seconds(_ value: Double) -> String { String(format: "%.2f s", value) }
@@ -154,5 +177,65 @@ struct SettingsView: View {
         }
         let cutIns = timing.cutIns == 1 ? "1 time" : "\(timing.cutIns) times"
         return "Learned from your last \(pauses) pauses. It has cut in on you \(cutIns) in \(timing.replies) replies."
+    }
+}
+
+/// Everything it remembers, to read and to take back.
+struct MemoryView: View {
+    let companion: Companion
+    @Environment(\.dismiss) private var dismiss
+    @State private var confirming = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("What it remembers").font(.headline)
+                Spacer()
+                Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
+            }
+            .padding()
+            List {
+                let lasting = companion.notes.filter(\.lasting)
+                if !lasting.isEmpty {
+                    Section("About you") {
+                        ForEach(lasting) { row($0) }
+                    }
+                }
+                Section("From your conversations") {
+                    ForEach(companion.notes.filter { !$0.lasting }) { row($0) }
+                }
+            }
+            HStack {
+                Text("Forgetting everything deletes every note and every saved conversation.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button("Forget everything…", role: .destructive) { confirming = true }
+            }
+            .padding()
+        }
+        .frame(width: 520, height: 520)
+        .confirmationDialog("Forget everything it remembers, and delete every saved conversation?",
+                            isPresented: $confirming) {
+            Button("Forget everything", role: .destructive) {
+                Task { await companion.forgetEverything() }
+            }
+        }
+    }
+
+    private func row(_ note: Note) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(note.text)
+                Text(Remembering.when(note.at)).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button {
+                Task { await companion.forget(note) }
+            } label: {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("Forget this")
+        }
     }
 }

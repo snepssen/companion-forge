@@ -30,6 +30,12 @@ public final class Companion {
     public private(set) var notice: String?
     /// A model download under way, from 0 to 1.
     public private(set) var downloading: (model: ChatModel, progress: Double)?
+    /// What it remembers, newest first.
+    public private(set) var notes: [Note] = []
+    /// Notes are being written from a conversation.
+    public private(set) var writingUp = false
+    /// What came to mind for the last thing they said.
+    public private(set) var recalled: [Note] = []
 
     /// The language model, chosen in settings; remembered.
     public private(set) var model: ChatModel =
@@ -55,6 +61,13 @@ public final class Companion {
     /// How loud its voice comes back through the canceller here, learned while
     /// it talks; kept between presses of Talk while the app is open.
     private var echoLevel = EchoLevel()
+    private var memory: Memory?
+    private var writing: Task<Void, Never>?
+    private var idleWatch: Task<Void, Never>?
+    /// When anything was last said, by either of them.
+    private var lastActivity = Duplex.now
+    /// Notes are written once a conversation has been quiet this long.
+    static let quietEnough = 45.0
 
     public init() {
         timing = (try? JSONDecoder().decode(PauseModel.self, from: Data(contentsOf: Resources.timing))) ?? PauseModel()
@@ -79,7 +92,16 @@ public final class Companion {
                     if progress < 1 { self?.phase = .loading("Downloading speech recognition… \(Int(progress * 100))%") }
                 }
             }
+            phase = .loading("Loading the memory…")
+            let embedder = try await Embedder.load { [weak self] progress in
+                Task { @MainActor in
+                    if progress < 1 { self?.phase = .loading("Downloading the memory's embedder… \(Int(progress * 100))%") }
+                }
+            }
+            memory = Memory(embedder: embedder)
+            notes = await memory?.notes ?? []
             try await loadBrain()
+            writeUp()
         } catch {
             phase = .failed(error.localizedDescription)
         }
@@ -136,8 +158,16 @@ public final class Companion {
             let log = try? ConversationLog(directory: Resources.conversations)
             let (stream, continuation) = AsyncStream<LoopEvent>.makeStream()
             let loop = Loop(audio: audio, vad: try SileroVAD(model: vadURL), recognizer: recognizer, brain: brain,
-                            voice: voice, log: log, timing: timing, echoLevel: echoLevel,
+                            voice: voice, memory: memory, log: log, timing: timing, echoLevel: echoLevel,
                             emit: Self.forward(to: continuation))
+            lastActivity = Duplex.now
+            idleWatch = Task { [weak self] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(15))
+                    guard let self, Duplex.now - self.lastActivity > Self.quietEnough else { continue }
+                    self.writeUp()
+                }
+            }
             self.loop = Task { await loop.run() }
             events = Task { [weak self] in
                 for await event in stream { self?.handle(event) }
@@ -153,13 +183,61 @@ public final class Companion {
     public func stop() {
         loop?.cancel()
         events?.cancel()
+        idleWatch?.cancel()
         loop = nil
         events = nil
+        idleWatch = nil
         audio?.stop()
         audio = nil
         face.hush(at: Duplex.now)
         face.set(.idle, at: Duplex.now)
-        if phase == .live { phase = .ready }
+        if phase == .live {
+            phase = .ready
+            writeUp()
+        }
+    }
+
+    // MARK: memory
+
+    /// Write notes from whatever hasn't been written up, in the background.
+    /// Talking stops it: the model is wanted for replies, and the rest is
+    /// written next time it is quiet.
+    func writeUp() {
+        guard writing == nil, let memory, let brain else { return }
+        writingUp = true
+        writing = Task { [weak self] in
+            do {
+                try await memory.writeUp(with: brain)
+            } catch is CancellationError {
+            } catch {
+                self?.notice = "Couldn't write up the conversation: \(error.localizedDescription)"
+            }
+            self?.notes = await memory.notes
+            self?.writingUp = false
+            self?.writing = nil
+        }
+    }
+
+    public func forget(_ note: Note) async {
+        do {
+            try await memory?.forget(note.id)
+        } catch {
+            notice = "Couldn't forget that: \(error.localizedDescription)"
+        }
+        notes = await memory?.notes ?? []
+    }
+
+    /// Every note and every conversation log.
+    public func forgetEverything() async {
+        writing?.cancel()
+        do {
+            try await memory?.forgetEverything()
+        } catch {
+            notice = "Couldn't forget everything: \(error.localizedDescription)"
+        }
+        notes = await memory?.notes ?? []
+        recalled = []
+        lines = []
     }
 
     public func toggle() async {
@@ -177,6 +255,14 @@ public final class Companion {
         switch event {
         case let .mood(mood):
             face.set(mood, at: now)
+            lastActivity = now
+            // Someone is talking: the model is wanted for the reply.
+            if mood == .listening {
+                writing?.cancel()
+                recalled = []
+            }
+        case let .recalled(recollection):
+            recalled = recollection.notes
         case let .heard(text):
             append(.person, text)
         case let .saying(text, words, start):

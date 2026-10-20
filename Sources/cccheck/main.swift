@@ -193,6 +193,92 @@ performance.say(words, at: 50)
 performance.hush(at: 50.3)
 check("hushed, the mouth closes", near(performance.pose(at: 51).face.mouth.aperture, 0, 1e-6))
 
+// MARK: memory
+
+/// A unit vector mostly along `axis`, a little along `lean`.
+func vector(_ axis: Int, lean: Int? = nil, by amount: Float = 0) -> [Float] {
+    var v = [Float](repeating: 0, count: 8)
+    v[axis] = 1
+    if let lean { v[lean] = amount }
+    let length = v.reduce(0) { $0 + $1 * $1 }.squareRoot()
+    return v.map { $0 / length }
+}
+
+let day: TimeInterval = 86_400
+let now = Date(timeIntervalSince1970: 1_800_000_000)
+var store = MemoryStore()
+store.add(Note(text: "Their name is Sam.", session: "s1", turns: 0...0, at: now - 9 * day, lasting: true, vector: vector(0)))
+store.add(Note(text: "They have no eggs at home.", session: "s1", turns: 4...5, at: now - 2 * day, lasting: false,
+               vector: vector(1)))
+store.add(Note(text: "Their dog Biscuit is sick.", session: "s1", turns: 7...7, at: now - 1 * day, lasting: false,
+               vector: vector(2)))
+check("notes are kept", store.notes.count == 3)
+let replaced = store.add(Note(text: "They don't have any eggs.", session: "s2", turns: 1...1, at: now, lasting: false,
+                              vector: vector(1, lean: 3, by: 0.2)))
+check("the same thing again replaces it", replaced.count == 1 && store.notes.count == 3
+    && store.notes.contains { $0.text == "They don't have any eggs." })
+store.add(Note(text: "They are called Sam.", session: "s2", turns: 2...2, at: now, lasting: false, vector: vector(0, lean: 4, by: 0.1)))
+check("once lasting, still lasting", store.profile.first?.text == "They are called Sam.")
+store.add(Note(text: "Their sister visits soon.", session: "s2", turns: 3...3, at: now, lasting: false,
+               vector: vector(1, lean: 5, by: 1)))
+check("something different is kept", store.notes.count == 4)
+let found = store.recall("What's for breakfast?", vector: vector(1, lean: 6, by: 0.3), now: now)
+check("recall finds by meaning", found.first?.note.text == "They don't have any eggs.")
+check("and leaves the lasting ones to the profile", !found.contains { $0.note.lasting })
+check("nothing relevant, nothing found", store.recall("Weather?", vector: vector(7), now: now).isEmpty)
+let close = store.recall("Eggs or a visit?", vector: vector(1, lean: 5, by: 0.4), now: now)
+check("notes close to the best come too", close.count == 2)
+let farBehind = store.recall("Eggs?", vector: vector(1, lean: 5, by: 0.15), now: now)
+check("notes far behind the best don't", farBehind.count == 1)
+let named = store.recall("How is Biscuit doing?", vector: vector(6, lean: 2, by: 0.5), now: now)
+check("a shared name lifts a note over the bar", named.first?.note.text == "Their dog Biscuit is sick.")
+check("walking meets walked", MemoryStore.words("where I went walking").contains("walk")
+    && MemoryStore.words("They walked by the river").contains("walk"))
+store.wrote("s1", through: 8)
+store.wrote("s1", through: 5)
+check("written up to, never backwards", store.next(in: "s1") == 8 && store.next(in: "s9") == 0)
+store.forget(store.notes[0].id)
+check("a note can be forgotten", store.notes.count == 3)
+store.forgetAll()
+check("everything can be", store.notes.isEmpty && store.next(in: "s1") == 0)
+
+let written = Remembering.parse("""
+Here are the notes:
+- [3-5] They walked by the river this evening and loved it.
+- [8] Their name is Sam. (lasting)
+* [40] They mentioned a turn that doesn't exist.
+- [2] Hi.
+NONE
+""", turns: 0...10)
+check("notes are read from the answer", written.count == 3)
+check("with their turns", written.first?.turns == 3...5 && written.first?.text == "They walked by the river this evening and loved it.")
+check("lasting is marked and taken off", written[1].lasting && written[1].text == "Their name is Sam.")
+check("turns are held to the conversation", written[2].turns == 10...10)
+check("NONE is nothing", Remembering.parse("NONE", turns: 0...10).isEmpty)
+check("who they are is lasting, marked or not",
+      ["Their name is Sam.", "They work as a nurse on night shifts.", "They has a dog named Biscuit, a beagle.",
+       "Their sister Ana is called Ana.", "They live in York with their partner.", "Their dog is called Biscuit."]
+          .allSatisfy(Remembering.looksLasting))
+check("what happened isn't",
+      ["They ran out of eggs.", "Their sister Ana is visiting next Saturday.", "They walked by the river."]
+          .allSatisfy { !Remembering.looksLasting($0) })
+check("asking about the past", Remembering.asksAboutThePast("Do you remember what I said about my sister?"))
+check("not asking about it", !Remembering.asksAboutThePast("What should I cook tonight?"))
+check("when, as people say it", Remembering.when(now - 1 * day, now: now) == "Yesterday"
+    && Remembering.when(now - 3 * day, now: now) == "3 days ago" && Remembering.when(now, now: now) == "Today")
+let recollection = Recollection(profile: [Note(text: "Their name is Sam.", session: "s", turns: 0...0, at: now,
+                                               lasting: true, vector: [])],
+                                notes: [Note(text: "They have no eggs.", session: "s", turns: 1...1, at: now - day,
+                                             lasting: false, vector: [])],
+                                excerpt: [Turn(.person, "I'm out of eggs.")])
+check("the profile goes in the instructions", recollection.knowing?.contains("- Their name is Sam.") == true)
+check("notes and words before what they said",
+      recollection.reminder(now: now)?.contains("- Yesterday: They have no eggs.") == true
+          && recollection.reminder(now: now)?.contains("Them: I'm out of eggs.") == true)
+check("nothing remembered, nothing said", Recollection().reminder() == nil && Recollection().knowing == nil)
+let transcript = Remembering.transcript([(4, Turn(.person, "Hi.")), (5, Turn(.companion, "Hello!"))], known: ["Their name is Sam."])
+check("the transcript numbers turns as the log does", transcript.contains("[4] Person: Hi.") && transcript.contains("[5] Companion: Hello!"))
+
 // MARK: log
 
 let folder = FileManager.default.temporaryDirectory.appending(path: "cccheck-\(UUID().uuidString)")

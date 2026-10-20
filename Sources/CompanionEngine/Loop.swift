@@ -6,6 +6,8 @@ public enum LoopEvent: Sendable {
     case mood(Mood)
     /// A turn of theirs, as it will be answered.
     case heard(String)
+    /// What the memory brought up for the turn being drafted.
+    case recalled(Recollection)
     /// The voice starts saying `words` at `start`, on `Duplex.now`'s clock.
     case saying(String, words: [SpokenWord], start: Double)
     /// The voice was cut off at this time.
@@ -60,6 +62,7 @@ public actor Loop {
     private let brain: Brain
     private let voice: Voice
     private let log: ConversationLog?
+    private let memory: Memory?
     private let emit: @Sendable (LoopEvent) -> Void
     private var taker: TurnTaker
     private var history: [Turn] = []
@@ -69,7 +72,8 @@ public actor Loop {
     private var draft: Task<Void, Never>?
     private var echoLevel: EchoLevel
 
-    public init(audio: any AudioIO, vad: SileroVAD, recognizer: Recognizer, brain: Brain, voice: Voice, log: ConversationLog?,
+    public init(audio: any AudioIO, vad: SileroVAD, recognizer: Recognizer, brain: Brain, voice: Voice,
+                memory: Memory? = nil, log: ConversationLog?,
          timing: PauseModel, echoLevel: EchoLevel = EchoLevel(), emit: @escaping @Sendable (LoopEvent) -> Void) {
         self.audio = audio
         self.vad = vad
@@ -77,6 +81,7 @@ public actor Loop {
         self.brain = brain
         self.voice = voice
         self.log = log
+        self.memory = memory
         self.emit = emit
         taker = TurnTaker(model: timing)
         self.echoLevel = echoLevel
@@ -159,12 +164,15 @@ public actor Loop {
             taker.transcribed(Ending.of(text))
             reply.person = text
             let turns = history + [Turn(.person, text)]
+            let recollection = await memory?.recollect(for: text) ?? Recollection()
+            guard reply.id == id, !Task.isCancelled else { return }
+            if !recollection.notes.isEmpty || !recollection.excerpt.isEmpty { emit(.recalled(recollection)) }
 
             let (pieces, continuation) = AsyncStream<String>.makeStream()
             let brain = brain
             let generation = Task {
                 defer { continuation.finish() }
-                try await brain.reply(to: turns) { continuation.yield($0) }
+                try await brain.reply(to: turns, remembering: recollection) { continuation.yield($0) }
             }
             var splitter = SentenceSplitter()
             await withTaskCancellationHandler {

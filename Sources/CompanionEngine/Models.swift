@@ -6,11 +6,8 @@ import Foundation
 /// (scripts/compare-models.py, the complete-thought judge): Gemma 4 E4B is the
 /// best of them and wants a Mac or a 12 GB iPhone; Qwen3 4B and Gemma 4 E2B
 /// fit an 8 GB phone beside speech recognition and the voice.
-public struct ChatModel: Identifiable, Hashable, Sendable {
-    public struct File: Hashable, Sendable {
-        let name: String
-        let size: Int64
-    }
+public struct ChatModel: Pinned, Identifiable, Hashable, Sendable {
+    public typealias File = PinnedFile
 
     public let id: String  // folder name, and what is remembered as the choice
     public let name: String
@@ -19,9 +16,7 @@ public struct ChatModel: Identifiable, Hashable, Sendable {
     public let revision: String
     /// Peak memory while generating, measured on a Mac.
     public let memoryGB: Double
-    let files: [File]
-
-    public var download: Int64 { files.reduce(0) { $0 + $1.size } }
+    public let files: [File]
 
     /// Whether this device has the memory for it alongside recognition and the voice.
     public var fits: Bool {
@@ -70,6 +65,40 @@ public enum ModelCatalog {
     public static func model(_ id: String?) -> ChatModel? { all.first { $0.id == id } }
 }
 
+public struct PinnedFile: Hashable, Sendable {
+    let name: String
+    let size: Int64
+}
+
+/// A model at a fixed revision of a Hugging Face repository, file by file.
+public protocol Pinned: Sendable {
+    var id: String { get }
+    var repo: String { get }
+    var revision: String { get }
+    var files: [PinnedFile] { get }
+}
+
+extension Pinned {
+    public var download: Int64 { files.reduce(0) { $0 + $1.size } }
+}
+
+/// The embedding model notes are found by: bge-small-en-v1.5, 33 million
+/// parameters. Apple's built-in sentence embedding was tried first and ranked
+/// "They work night shifts as a nurse" above "They have no eggs at home" for
+/// "What should I make for breakfast?".
+public struct EmbedderModel: Pinned {
+    public let id = "bge-small-en-v1.5"
+    public let repo = "BAAI/bge-small-en-v1.5"
+    public let revision = "5c38ec7c405ec4b44b94cc5a9bb96e735b38267a"
+    public let files: [PinnedFile] = [
+        .init(name: "1_Pooling/config.json", size: 190), .init(name: "config.json", size: 743),
+        .init(name: "model.safetensors", size: 133_466_304), .init(name: "special_tokens_map.json", size: 125),
+        .init(name: "tokenizer.json", size: 711_396), .init(name: "tokenizer_config.json", size: 366),
+        .init(name: "vocab.txt", size: 231_508),
+    ]
+    public init() {}
+}
+
 /// Models on this device: fetched file by file from their pinned revision into
 /// Application Support, sizes checked so a cut-off download is fetched again
 /// rather than loaded, and kept out of backups. For development, this
@@ -77,20 +106,20 @@ public enum ModelCatalog {
 public enum ModelStore {
     static var directory: URL { Resources.support.appending(path: "Models") }
 
-    static func folders(for model: ChatModel) -> [URL] {
+    static func folders(for model: some Pinned) -> [URL] {
         [directory, Resources.checkout.appending(path: "models"), Resources.translateCore.appending(path: "models")]
             .map { $0.appending(path: model.id) }
     }
 
-    public static func location(of model: ChatModel) -> URL? {
+    public static func location(of model: some Pinned) -> URL? {
         folders(for: model).first { folder in model.files.allSatisfy { fileSize(folder.appending(path: $0.name)) == $0.size } }
     }
 
-    public static func isDownloaded(_ model: ChatModel) -> Bool { location(of: model) != nil }
+    public static func isDownloaded(_ model: some Pinned) -> Bool { location(of: model) != nil }
 
     /// Fetch whatever of `model` isn't here yet; `progress` runs from 0 to 1.
     @discardableResult
-    public static func download(_ model: ChatModel, progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
+    public static func download(_ model: some Pinned, progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
         if let found = location(of: model) { return found }
         let folder = directory.appending(path: model.id)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -115,6 +144,7 @@ public enum ModelStore {
                 throw Problem("\(file.name) arrived as \(fileSize(downloaded) ?? 0) bytes, not \(file.size). Try again on a steady connection.")
             }
             try? FileManager.default.removeItem(at: target)
+            try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
             try FileManager.default.moveItem(at: downloaded, to: target)
             done += file.size
         }

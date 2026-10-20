@@ -29,14 +29,15 @@ let package = Package(
         // NSException to NSError, for AVAudioEngine, which raises instead of throwing.
         .target(name: "ObjCExceptions"),
         // The models and the live loop: Silero VAD and Parakeet (ONNX,
-        // FluidAudio), the language model (MLX), the voice (voice-core's
-        // Piper), one echo-cancelled audio engine for all of it.
+        // FluidAudio), the language model and the memory's embedder (MLX),
+        // the voice (voice-core's Piper), one echo-cancelled audio engine.
         .target(name: "CompanionEngine", dependencies: [
             "CompanionCore", "ObjCExceptions",
             .product(name: "VoiceCore", package: "voice-core"),
             .product(name: "FluidAudio", package: "FluidAudio"),
             .product(name: "MLXLLM", package: "mlx-swift-lm"),
             .product(name: "MLXLMCommon", package: "mlx-swift-lm"),
+            .product(name: "MLXEmbedders", package: "mlx-swift-lm"),
             .product(name: "MLXHuggingFace", package: "mlx-swift-lm"),
             .product(name: "HuggingFace", package: "swift-huggingface"),
             .product(name: "Tokenizers", package: "swift-transformers"),
