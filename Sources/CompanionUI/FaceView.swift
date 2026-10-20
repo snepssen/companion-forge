@@ -30,9 +30,14 @@ public struct FaceView: View {
     }
 
     public var body: some View {
-        TimelineView(.animation) { _ in
+        TimelineView(.animation) { timeline in
+            // The frame's own time, read inside the drawing: a canvas that
+            // doesn't depend on the timeline is taken as unchanged and never
+            // redrawn between changes of state, which froze the mouth, the
+            // blinks and the eyes (found in the first real run).
+            let now = ProcessInfo.processInfo.systemUptime + timeline.date.timeIntervalSinceNow
             Canvas { context, size in
-                let posed = performance.pose(at: ProcessInfo.processInfo.systemUptime)
+                let posed = performance.pose(at: now)
                 let pose = felt().apply(to: Attention.apply(look(), mood: performance.mood, to: posed))
                 Self.draw(pose, in: &context, size: size, colour: colour, style: style, hearing: Double(hearing()))
             }
