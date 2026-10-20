@@ -280,6 +280,22 @@ check("nothing remembered, nothing said", Recollection().reminder() == nil && Re
 let transcript = Remembering.transcript([(4, Turn(.person, "Hi.")), (5, Turn(.companion, "Hello!"))], known: ["Their name is Sam."])
 check("the transcript numbers turns as the log does", transcript.contains("[4] Person: Hi.") && transcript.contains("[5] Companion: Hello!"))
 
+// MARK: memory commands
+
+check("remember that…", MemoryCommand.parse("Remember that my sister's birthday is March 3rd.")
+    == .remember("my sister's birthday is March 3rd"))
+check("can you remember…", MemoryCommand.parse("Hey, can you please remember to buy oat milk?") == .remember("buy oat milk"))
+check("don't forget…", MemoryCommand.parse("Don't forget I'm allergic to peanuts") == .remember("I'm allergic to peanuts"))
+check("remember when… is a question", MemoryCommand.parse("Remember when we talked about Ana?") == nil)
+check("do you remember… is a question", MemoryCommand.parse("Do you remember my dog's name?") == nil)
+check("forget what I said about…", MemoryCommand.parse("Forget what I said about my ex.") == .forget("my ex"))
+check("please forget about…", MemoryCommand.parse("Please forget about the eggs") == .forget("the eggs"))
+check("forget it is not a command", MemoryCommand.parse("Forget it.") == nil && MemoryCommand.parse("Oh, forget it") == nil)
+check("mentioning remembering isn't asking", MemoryCommand.parse("I can't remember where I left my keys") == nil)
+check("the note keeps their words", MemoryCommand.note(for: "my sister's birthday is March 3rd")
+    == "They asked you to remember: my sister's birthday is March 3rd.")
+check("an aside goes before what they said", Recollection(aside: "You noted it down.").reminder() == "(You noted it down.)")
+
 // MARK: window
 
 check("a short conversation is shown whole", Window.shown(5) == 5 && Window.shown(16) == 16)

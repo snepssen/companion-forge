@@ -57,8 +57,11 @@ listening, thinking, speaking, surprised) and blinks and breathes on its own.
 A sentence Apple's on-device sentiment score finds glad is said with
 protoke's happy eyes; its sad side isn't used, because it scores plain
 questions as sad as sympathy.
-The mouth follows the words the voice is saying, timed by their spelling
-across each clip.
+The mouth follows what the voice says, phoneme by phoneme: the voice graph
+reports how long it spent on each one, and espeak's IPA maps to protoke's
+mouth shapes, so "my mom" is mouthed m-ah-ee, m-ah-m (`ccrun --lipsync`).
+The polyglot voice, whose layout differs, falls back to timing words by
+their spelling.
 
 ## The window
 
@@ -122,6 +125,13 @@ exhausting" to the note about night shifts. What comes to mind goes in just
 before your words, so the rest of the conversation stays in the model's
 cache. When you ask about the past ("do you remember…", "last time…"), the
 original turns behind the best note are read back word for word.
+
+You can also ask out loud. "Remember that my sister's birthday is on the
+third of March" is noted at once, in your own words; "Forget what I said
+about my sister's birthday" finds the closest note and deletes it; it says
+which it did (`ccrun --commands`). Both happen only once your turn is
+over, so a half-heard sentence changes nothing, and "remember when…" is a
+question, not a command.
 
 Writing notes gives way to talking: it stops the moment you speak and picks
 up where it left off next time it is quiet. Settings shows everything it

@@ -81,6 +81,24 @@ public actor Memory {
         return added
     }
 
+    /// Note something at once, because they asked, in their own words.
+    @discardableResult
+    public func remember(_ what: String, session: String, turn: Int, at date: Date = Date()) async throws -> Note {
+        let text = MemoryCommand.note(for: what)
+        let vector = await embedder.embed([text])[0]
+        let note = Note(text: text, session: session, turns: turn...turn, at: date, lasting: false, vector: vector)
+        store.add(note)
+        try save()
+        return note
+    }
+
+    /// The note closest to what they asked to be forgotten, lasting ones
+    /// included, if any is close enough to be the one they meant.
+    public func closest(to what: String) async -> Note? {
+        let vector = await embedder.embed([what], query: true)[0]
+        return store.recall(what, vector: vector, limit: 1, lasting: true).first?.note
+    }
+
     public func forget(_ id: String) throws {
         store.forget(id)
         try save()

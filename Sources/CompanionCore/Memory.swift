@@ -93,9 +93,9 @@ public struct MemoryStore: Codable, Sendable, Equatable {
     /// shared words (names above all) add to it, and recency breaks near-ties.
     /// Lasting notes are left out: they are in every reply already.
     public func recall(_ text: String, vector: [Float], limit: Int = 3, atLeast floor: Double = relevant,
-                       now: Date = Date()) -> [(note: Note, score: Double)] {
+                       lasting: Bool = false, now: Date = Date()) -> [(note: Note, score: Double)] {
         let words = Self.words(text)
-        let scored = notes.filter { !$0.lasting }
+        let scored = notes.filter { lasting || !$0.lasting }
             .map { note -> (note: Note, score: Double) in
                 let meaning = Double(Self.cosine(vector, note.vector))
                 let shared = Self.overlap(words, Self.words(note.text))
@@ -152,14 +152,17 @@ public struct Recollection: Sendable, Equatable {
     public var notes: [Note]
     /// The turns behind the most relevant note, when they asked about the past.
     public var excerpt: [Turn]
+    /// What was done with the memory just now, at their asking.
+    public var aside: String?
 
-    public init(profile: [Note] = [], notes: [Note] = [], excerpt: [Turn] = []) {
+    public init(profile: [Note] = [], notes: [Note] = [], excerpt: [Turn] = [], aside: String? = nil) {
         self.profile = profile
         self.notes = notes
         self.excerpt = excerpt
+        self.aside = aside
     }
 
-    public var isEmpty: Bool { profile.isEmpty && notes.isEmpty && excerpt.isEmpty }
+    public var isEmpty: Bool { profile.isEmpty && notes.isEmpty && excerpt.isEmpty && aside == nil }
 
     /// For the instructions: what it knows about them.
     public var knowing: String? {
@@ -170,8 +173,11 @@ public struct Recollection: Sendable, Equatable {
 
     /// Put before what they just said: what came to mind.
     public func reminder(now: Date = Date()) -> String? {
-        guard !notes.isEmpty || !excerpt.isEmpty else { return nil }
-        var lines = ["(This came to mind from earlier conversations. Use it if it helps; don't recite it.)"]
+        guard !notes.isEmpty || !excerpt.isEmpty || aside != nil else { return nil }
+        var lines: [String] = []
+        if let aside { lines.append("(\(aside))") }
+        guard !notes.isEmpty || !excerpt.isEmpty else { return lines.joined(separator: "\n") }
+        lines.append("(This came to mind from earlier conversations. Use it if it helps; don't recite it.)")
         lines += notes.map { "- \(Remembering.when($0.at, now: now)): \($0.text)" }
         if !excerpt.isEmpty {
             lines.append("What was said then, word for word:")
@@ -274,4 +280,48 @@ public enum Remembering {
         default: return days < 730 ? "A year ago" : "\(days / 365) years ago"
         }
     }
+}
+
+/// Being asked, out loud, to remember or forget something.
+public enum MemoryCommand: Equatable, Sendable {
+    /// "Remember that my sister's birthday is in March": noted at once, in their words.
+    case remember(String)
+    /// "Forget what I said about my ex": the closest note goes.
+    case forget(String)
+
+    /// Only at the start of what they said, and not "remember when…", which
+    /// is a question about the past.
+    public static func parse(_ text: String) -> MemoryCommand? {
+        let lower = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let opening = /^(?:(?:hey|ok|okay|so|and|please|oh)[,!]?\s+)*(?:(?:can|could|would|will) you\s+)?(?:please\s+)?/
+        guard let start = lower.prefixMatch(of: opening) else { return nil }
+        let rest = String(lower[start.range.upperBound...])
+        if let match = rest.prefixMatch(of: /(?:remember|don't forget|do not forget|make a note|note down|keep in mind)(?:\s+(?:that|this|to))?[,:]?\s+(.+)/) {
+            let what = String(match.1)
+            if what.prefixMatch(of: /(?:when|what|where|who|how|why|the time|that time|last|if|whether)\b/) != nil { return nil }
+            return .remember(clean(original(text, from: what)))
+        }
+        if let match = rest.prefixMatch(of: /forget\s+(?:about\s+|that\s+|what i (?:said|told you) about\s+|everything about\s+|the (?:thing|bit|part) about\s+)?(.+)/) {
+            let what = String(match.1)
+            guard !["it", "that", "this", "everything", "about it"].contains(clean(what)) else { return nil }
+            return .forget(clean(original(text, from: what)))
+        }
+        return nil
+    }
+
+    /// The same words as they said them, capitals and all.
+    static func original(_ text: String, from lowered: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.count >= lowered.count ? String(trimmed.suffix(lowered.count)) : lowered
+    }
+
+    static func clean(_ text: String) -> String {
+        var out = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        while let last = out.last, ".!?,".contains(last) { out.removeLast() }
+        return out
+    }
+
+    /// The note for "remember": in their own words, so nothing is lost in
+    /// turning "my" into "their".
+    public static func note(for what: String) -> String { "They asked you to remember: \(what)." }
 }

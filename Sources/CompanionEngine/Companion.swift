@@ -348,6 +348,8 @@ public final class Companion {
             }
         case let .recalled(recollection):
             recalled = recollection.notes
+        case .memoryChanged:
+            Task { notes = await memory?.notes ?? notes }
         case let .heard(text):
             append(.person, text)
         case let .saying(text, mouth, start):

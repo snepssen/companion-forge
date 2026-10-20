@@ -8,6 +8,8 @@ public enum LoopEvent: Sendable {
     case heard(String)
     /// What the memory brought up for the turn being drafted.
     case recalled(Recollection)
+    /// A note was added or forgotten because they asked.
+    case memoryChanged
     /// The voice starts saying this at `start`, on `Duplex.now`'s clock,
     /// with these mouth shapes.
     case saying(String, mouth: [VisemeSpan], start: Double)
@@ -39,6 +41,13 @@ public struct DraftTimes: Sendable {
     public var promptLength = 0
 }
 
+/// Remembering or forgetting, as they asked, done when their turn is
+/// committed: a draft can still be thrown away.
+enum MemoryAction: Sendable {
+    case remember(String)
+    case forget(Note)
+}
+
 /// The live conversation: microphone frames through the voice detector into
 /// the turn taker, and whatever it decides carried out.
 ///
@@ -61,6 +70,8 @@ public actor Loop {
         var person = ""
         var held: [(text: String, samples: [Float], mouth: [VisemeSpan]?)] = []
         var times = DraftTimes()
+        /// What to do with the memory once the turn is theirs for certain.
+        var memory: MemoryAction?
         var started = 0.0
         var said: [Said] = []
         var committed = false
@@ -183,7 +194,10 @@ public actor Loop {
             taker.transcribed(Ending.of(text))
             reply.person = text
             let turns = history + [Turn(.person, text)]
-            let recollection = await memory?.recollect(for: text) ?? Recollection()
+            var recollection = await memory?.recollect(for: text) ?? Recollection()
+            if let memory, let command = MemoryCommand.parse(text) {
+                (reply.memory, recollection.aside) = await plan(command, with: memory)
+            }
             guard reply.id == id, !Task.isCancelled else { return }
             reply.times.recalled = Duplex.now - reply.started
             if !recollection.notes.isEmpty || !recollection.excerpt.isEmpty { emit(.recalled(recollection)) }
@@ -221,6 +235,21 @@ public actor Loop {
         }
     }
 
+    /// What to do about being asked to remember or forget, and what the
+    /// model should know of it to reply.
+    private func plan(_ command: MemoryCommand, with memory: Memory) async -> (MemoryAction?, String) {
+        switch command {
+        case let .remember(what):
+            return (.remember(what), "They asked you to remember this, and it is noted: \(what). Say so in a few words.")
+        case let .forget(what):
+            guard let note = await memory.closest(to: what) else {
+                return (nil, "They asked you to forget something about \(what), but you have no note about that. Say so.")
+            }
+            return (.forget(note), "They asked you to forget something, and this note is now forgotten: "
+                + "\(note.text) Say so in a few words, without repeating it.")
+        }
+    }
+
     /// Synthesise a sentence off the loop, then hold it or say it.
     private func speak(_ sentence: String, _ id: Int) async {
         guard reply.id == id, !Task.isCancelled else { return }
@@ -244,7 +273,17 @@ public actor Loop {
 
     private func commit() {
         reply.committed = true
-        record(Turn(.person, reply.person))
+        let turn = record(Turn(.person, reply.person))
+        if let action = reply.memory, let memory {
+            let session = log?.session ?? "unlogged"
+            Task {
+                switch action {
+                case let .remember(what): _ = try? await memory.remember(what, session: session, turn: turn ?? 0)
+                case let .forget(note): try? await memory.forget(note.id)
+                }
+                emit(.memoryChanged)
+            }
+        }
         emit(.heard(reply.person))
         emit(.timing(taker.model))
         if reply.held.isEmpty { emit(.mood(.thinking)) }
@@ -335,13 +374,16 @@ public actor Loop {
         }
     }
 
-    private func record(_ turn: Turn) {
+    /// Keep a turn in the conversation and its log; returns its place in the log.
+    @discardableResult
+    private func record(_ turn: Turn) -> Int? {
         history.append(turn)
         history.removeFirst(Window.trim(history.count))
         do {
-            try log?.append(turn)
+            return try log?.append(turn)
         } catch {
             emit(.problem("Couldn't write the conversation log: \(error.localizedDescription)"))
+            return nil
         }
     }
 }

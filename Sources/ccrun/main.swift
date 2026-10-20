@@ -6,6 +6,7 @@
 //   ccrun                       a short conversation, with an interruption
 //   ccrun --echo 0.3            the same with far more echo leaking through
 //   ccrun --shake               with the phone shaken between turns
+//   ccrun --commands            asked out loud to remember something, then to forget it
 //   ccrun --model qwen3-4b-instruct-2507-4bit
 //   ccrun --faces <folder>      the face in each mood and some visemes, as PNGs
 //         [--style smooth] [--colour magenta] [--hearing 0.05]   (also for --window)
@@ -520,6 +521,7 @@ enum Report {
     switch event {
     case let .mood(mood): say("face: \(mood.rawValue)")
     case let .heard(text): say("heard: \(text)")
+    case .memoryChanged: say("memory changed")
     case let .recalled(recollection):
         for note in recollection.notes { say("recalled: \(note.text)") }
         for turn in recollection.excerpt { say("  word for word: \(turn.text)") }
@@ -587,6 +589,24 @@ func turn(_ phrases: [String], pausing: Double = 0.55) async throws {
         tally.waitingForReply = true
     }
     audio.markReply()
+}
+
+if CommandLine.arguments.contains("--commands") {
+    // Remembering and forgetting, asked for out loud.
+    await mouth.pause(1)
+    var before = Report.ended()
+    try await turn(["Remember that my sister's birthday is on the third of March."])
+    await mouth.pauseForReply(after: before)
+    print("  notes now: " + (await memory.notes).map(\.text).joined(separator: " | "))
+    await mouth.pause(1.5)
+    before = Report.ended()
+    try await turn(["Forget what I said about my sister's birthday."])
+    await mouth.pauseForReply(after: before)
+    print("  notes now: " + ((await memory.notes).isEmpty ? "none" : (await memory.notes).map(\.text).joined(separator: " | ")))
+    await mouth.pause(1)
+    running.cancel()
+    try? FileManager.default.removeItem(at: memoryFolder)
+    exit(0)
 }
 
 await mouth.pause(1)
