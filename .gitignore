@@ -1,0 +1,7 @@
+models/
+.build/
+.swiftpm/
+Companion.app/
+*.xcresult
+.DS_Store
+.claude/
