@@ -239,3 +239,22 @@ public struct EchoDelay: Sendable {
         return aa > 0 && bb > 0 ? ab / (aa * bb).squareRoot() : 0
     }
 }
+
+/// Catching it claiming to do what it can't. Told plainly in its
+/// instructions, a 4B model still drifts into "I am looking into local
+/// places that deliver… please hold on while I check" over a long evening.
+/// A sentence like that is replaced with the truth, and the reply ends there.
+public enum Honesty {
+    public static let admission = "Actually, I can't look things up or check anything from here, sorry."
+
+    public static func pretends(_ sentence: String) -> Bool {
+        let lower = sentence.lowercased()
+        let patterns = [
+            #"\b(?:i am|i'm|i will|i'll|let me|i can|i could|i'd)\s+(?:now\s+|just\s+|quickly\s+|go\s+and\s+)?(?:search|searching|look up|looking up|look into|looking into|look for places|looking for places|check|checking|browse|browsing|order|ordering|book|booking|call|calling|find (?:places|options|somewhere|a place|restaurants|delivery|out what's open))\b"#,
+            #"\bi (?:have |'ve )?(?:found|checked|looked (?:it )?up|searched)\b"#,
+            #"\bi am trying to (?:see|find|check)\b"#,
+            #"\b(?:hold on|bear with me|give me (?:just )?a (?:moment|second|sec|minute))\b.*\b(?:check|look|search|find)"#,
+        ]
+        return patterns.contains { lower.range(of: $0, options: .regularExpression) != nil }
+    }
+}

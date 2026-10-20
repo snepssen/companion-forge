@@ -274,6 +274,20 @@ check("with their turns", written.first?.turns == 3...5 && written.first?.text =
 check("lasting is marked and taken off", written[1].lasting && written[1].text == "Their name is Sam.")
 check("turns are held to the conversation", written[2].turns == 10...10)
 check("NONE is nothing", Remembering.parse("NONE", turns: 0...10).isEmpty)
+check("lasting is what the note says, not the model's mark",
+      Remembering.parse("- [3] They eat cheese with their mouth. (lasting)", turns: 0...5).first?.lasting == false)
+check("notes speaking as the companion are dropped", ["They want me to look for delivery options.",
+    "They wanted to hear about the options I found.", "They like your voice."].allSatisfy { !Remembering.isAboutThem($0) })
+check("notes about them are kept", ["They decided to call you Tom.", "Their name is Lin.", "They like cow cheese.",
+    "They asked you to remember: my sister's birthday is March 3rd."].allSatisfy(Remembering.isAboutThem))
+check("deciding to call it something is lasting", Remembering.looksLasting("They decided to call you Tom."))
+check("pretending to search is caught", ["I am looking into local places that deliver until midnight.",
+                                         "Please hold on for a moment while I check.", "I can search for places nearby.",
+                                         "I think I found a few places that might be open.",
+                                         "I am trying to see what options are available for you."].allSatisfy(Honesty.pretends))
+check("helping is not pretending", ["Can I help you find a recipe?", "Do you want ideas for what to make?",
+                                    "I cannot check for local deliveries.", "Let me think about that."]
+    .allSatisfy { !Honesty.pretends($0) })
 check("what they call it is about it, and lasting",
       Remembering.parse("- [10] They call Companion Tom.", turns: 0...12).map { "\($0.turns) \($0.text) \($0.lasting)" }
           == ["10...10 They call you Tom. true"])

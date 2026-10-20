@@ -201,17 +201,16 @@ public enum Remembering {
     from, like this:
     - [3-5] They walked by the river this evening and loved it.
     - [8] Their sister is visiting next week.
-    - [11] They work in a bakery. (lasting)
-    - [14] They call you Pip. (lasting)
+    - [11] They work in a bakery.
+    - [14] They call you Pip.
     Notes are about them, never about you, and never something you said that they didn't. Begin every note \
-    with "They" or "Their". The one thing to note about you is what they call you or what you are to them, \
-    as "They call you …", always ending (lasting). Worth remembering: their name, facts about them and the people \
+    with "They" or "Their". The one thing to note about you is what they call you, as "They call you …". \
+    Worth remembering: their name, facts about them and the people \
     and pets in their life, what they like and dislike, plans and promises, things that happened to them, how \
     they felt about something that mattered, anything they asked you to remember. Not worth it: greetings, \
-    small talk, general questions, what the companion suggested unless they took it up, anything you already \
-    know. If they say their name, always note it. End a note with (lasting) when it will stay true for months: \
-    their name, their work, where they live, who the people and pets in their life are. Write at most eight \
-    notes, only from what was said. If nothing is worth remembering, write only: NONE
+    small talk, general questions, what they asked you to do, anything you offered, claimed, found or \
+    suggested, anything you already know. If they say their name, always note it. Write at most eight \
+    notes, only from what they said. If nothing is worth remembering, write only: NONE
     """
 
     /// The conversation as the note writer reads it, turns numbered as in the log.
@@ -247,9 +246,28 @@ public enum Remembering {
             let lasting = text.range(of: "(lasting)", options: .caseInsensitive) != nil
             text = text.replacingOccurrences(of: "(lasting)", with: "", options: .caseInsensitive)
                 .trimmingCharacters(in: .whitespaces)
-            guard text.split(separator: " ").count >= 3 else { return nil }
-            return Written(turns: low...high, text: text, lasting: lasting || looksLasting(text))
+            guard text.split(separator: " ").count >= 3, isAboutThem(text) else { return nil }
+            // Lasting by what it says, not by the model's mark: asked to
+            // mark them, it marked "They eat cheese with their mouth".
+            _ = lasting
+            return Written(turns: low...high, text: text, lasting: looksLasting(text))
         }
+    }
+
+    /// A note about the person rather than the companion. Told to write only
+    /// about them, a 4B model still wrote "They want me to look for delivery
+    /// options" and "They wanted to hear about the options I found": a note
+    /// speaking as the companion ("I", "me", "my", or "you" other than what
+    /// they call it) is about itself, and is dropped.
+    public static func isAboutThem(_ text: String) -> Bool {
+        // Noted at their asking, in their own words, "my" and all.
+        if text.lowercased().hasPrefix("they asked you to remember") { return true }
+        if text.range(of: #"\b(?:I|I'm|I've|I'd|I'll|me|my|mine|myself)\b"#, options: .regularExpression) != nil {
+            return false
+        }
+        let lower = text.lowercased()
+        guard lower.range(of: #"\b(?:you|your|yours|yourself)\b"#, options: .regularExpression) != nil else { return true }
+        return lower.range(of: #"\bcall(?:s|ed)? you\b"#, options: .regularExpression) != nil
     }
 
     /// Notes that are about who they are, whether or not the model marked
@@ -258,7 +276,7 @@ public enum Remembering {
         let people = "sister|brother|mom|mum|mother|father|dad|partner|wife|husband|girlfriend|boyfriend|son|daughter"
             + "|kid|child|children|friend|best friend|roommate|flatmate|dog|cat|pet|puppy|kitten"
         let patterns = [
-            "^their name is ", "^they(?:'re| are) called ", "^they call you ", "^they (?:work|works) (?:as|at|in|for|on) ",
+            "^their name is ", "^they(?:'re| are) called ", "^they (?:\\w+ )?(?:to )?call(?:s|ed)? you ", "^they (?:work|works) (?:as|at|in|for|on) ",
             "^they (?:live|lives) (?:in|at|near|with) ", "^they are \\d+ years old",
             "^their (?:\(people)) (?:\\w+ )?(?:is|are) (?:called|named) ",
             "^they (?:have|has|own|owns) an? (?:\(people))(?: \\w+)?,? (?:called|named) ",

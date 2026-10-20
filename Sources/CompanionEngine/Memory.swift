@@ -16,6 +16,16 @@ public actor Memory {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         store = (try? decoder.decode(MemoryStore.self, from: Data(contentsOf: file))) ?? MemoryStore()
+        // Notes written before the companion learned to keep itself out of them.
+        let loaded = store
+        for note in store.notes where !Remembering.isAboutThem(note.text) { store.forget(note.id) }
+        for note in store.notes where !note.lasting && Remembering.looksLasting(note.text) {
+            store.forget(note.id)
+            var lasting = note
+            lasting.lasting = true
+            store.add(lasting)
+        }
+        if store != loaded { try? save() }
     }
 
     public var notes: [Note] { store.notes.sorted { $0.at > $1.at } }

@@ -250,12 +250,20 @@ public actor Loop {
                 try await brain.reply(to: turns, remembering: recollection) { continuation.yield($0) }
             }
             var splitter = SentenceSplitter()
+            var pretended = false
             await withTaskCancellationHandler {
-                for await piece in pieces {
+                for await piece in pieces where !pretended {
                     if reply.id == id && reply.times.firstWords == 0 { reply.times.firstWords = Duplex.now - reply.started }
                     for sentence in splitter.feed(piece) {
                         if reply.id == id && reply.times.firstSentence == 0 {
                             reply.times.firstSentence = Duplex.now - reply.started
+                        }
+                        // Claiming to search or check: the truth instead, and no more.
+                        if Honesty.pretends(sentence) {
+                            pretended = true
+                            generation.cancel()
+                            await speak(Honesty.admission, id)
+                            break
                         }
                         await speak(sentence, id)
                     }
@@ -263,8 +271,19 @@ public actor Loop {
             } onCancel: {
                 generation.cancel()
             }
-            for sentence in splitter.finish() { await speak(sentence, id) }
-            _ = try await generation.value
+            if pretended {
+                _ = try? await generation.value
+                try Task.checkCancellation()
+            } else {
+                for sentence in splitter.finish() {
+                    if Honesty.pretends(sentence) {
+                        await speak(Honesty.admission, id)
+                        break
+                    }
+                    await speak(sentence, id)
+                }
+                _ = try await generation.value
+            }
             if reply.id == id {
                 reply.written = true
                 (reply.times.promptRead, reply.times.promptLength) = await brain.lastPrompt
