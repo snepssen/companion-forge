@@ -9,6 +9,7 @@
 //   ccrun --faces <folder>      the face in each mood and some visemes, as PNGs
 //   ccrun --window <file.png>   the app's window, loaded as the app loads it
 //   ccrun --memory              earlier conversations written up, then recalled
+//   ccrun --icon <file.png>     the app icon, 1024 px
 //   ccrun --recall              how the embedder ranks notes, for the thresholds
 //
 // Built with build.sh's xcodebuild (MLX needs its Metal library beside it):
@@ -87,6 +88,28 @@ func window(into file: URL) async throws {
     CGImageDestinationAddImage(destination, image, nil)
     CGImageDestinationFinalize(destination)
     print("  \(file.path)")
+}
+
+/// The app icon: the visor in its idle smirk, on black, 1024 px square.
+@MainActor
+func icon(into file: URL) throws {
+    var performance = FacePerformance(origin: 0)
+    performance.set(.idle, at: 0)
+    var pose = performance.pose(at: 2)
+    pose.offset = .zero
+    pose.tilt = 0
+    pose.muzzle = .zero
+    guard let image = FaceView.image(pose, size: CGSize(width: 512, height: 512)),
+          let destination = CGImageDestinationCreateWithURL(file as CFURL, UTType.png.identifier as CFString, 1, nil)
+    else { throw NSError(domain: "ccrun", code: 1, userInfo: [NSLocalizedDescriptionKey: "Couldn't render the icon"]) }
+    CGImageDestinationAddImage(destination, image, nil)
+    CGImageDestinationFinalize(destination)
+    print("  \(file.path)")
+}
+
+if let file = option("--icon") {
+    try await MainActor.run { try icon(into: URL(fileURLWithPath: file)) }
+    exit(0)
 }
 
 if let file = option("--window") {

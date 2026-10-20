@@ -103,6 +103,19 @@ downloaded from the app's settings; one already in translate-core's `models/`
 is used as it is. `swift run cccheck` holds the model-free parts to their
 cases in seconds.
 
+The iPhone and iPad app is the same engine and views (`iOS/`, generated
+with xcodegen as translate-core's is):
+
+    iOS/build-ios.sh               # build, install on a connected iPhone or iPad
+    iOS/build-ios.sh --no-install
+
+It offers the language models that fit beside recognition, the embedder and
+the voice: Qwen3 4B or Gemma 4 E2B on an 8 GB iPhone (with the increased
+memory entitlement), Gemma 4 E4B from 12 GB. Listening is foreground-only;
+leaving the app stops the conversation, which also writes it up. MLX needs a
+real GPU, so there is no Simulator build. It compiles and links for devices
+(2026-10-20) but has not been signed or run on one yet.
+
 `ccrun` plays recorded speech through the live loop in real time, with the
 reply's echo leaking back into the "microphone" at a chosen level:
 
@@ -110,6 +123,7 @@ reply's echo leaking back into the "microphone" at a chosen level:
     .build/xcode/Build/Products/Release/ccrun --echo 0.3   # with far more echo
     .build/xcode/Build/Products/Release/ccrun --faces /tmp/faces
     .build/xcode/Build/Products/Release/ccrun --memory     # notes written, then recalled
+    .build/xcode/Build/Products/Release/ccrun --icon Resources/icon-1024.png   # the icon, from the face
 
 Measured on this Mac with Gemma 4 E4B, 2026-10-20: the reply starts
 **0.9 to 1.5 s** after you stop talking. With the echo leaking back at 0.05
@@ -126,6 +140,7 @@ one shared package once both apps settle on them.
 
 ## Next
 
-- The iPad and iPhone apps: the same engine and views, as translate-core's are.
+- Running the iPhone and iPad app on a device: signing, then measuring
+  memory and lag on an 8 GB iPhone.
 - Desktop beyond the Mac, and Android: llama.cpp and sherpa-onnx, as
   translate-core's Android port runs Silero, Parakeet and Piper already.

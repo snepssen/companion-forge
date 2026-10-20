@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- A 4B language model, Parakeet, the embedder and the voice together need
+       more than the default limit on an 8 GB iPhone. -->
+  <key>com.apple.developer.kernel.increased-memory-limit</key>
+  <true/>
+</dict>
+</plist>

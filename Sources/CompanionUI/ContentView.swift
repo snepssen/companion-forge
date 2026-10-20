@@ -163,8 +163,12 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+        #if os(macOS)
         .frame(width: 400)
         .fixedSize(horizontal: false, vertical: true)
+        #else
+        .presentationDetents([.medium, .large])
+        #endif
         .sheet(isPresented: $showingMemory) { MemoryView(companion: companion) }
     }
 
@@ -213,7 +217,9 @@ struct MemoryView: View {
             }
             .padding()
         }
+        #if os(macOS)
         .frame(width: 520, height: 520)
+        #endif
         .confirmationDialog("Forget everything it remembers, and delete every saved conversation?",
                             isPresented: $confirming) {
             Button("Forget everything", role: .destructive) {

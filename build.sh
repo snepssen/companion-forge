@@ -49,6 +49,7 @@ done < <(find "$PRODUCTS" -maxdepth 1 -name '*.bundle')
 
 cp "$VOICE" "$VOICE.json" "$APP/Contents/Resources/"
 cp "$ROOT/models/silero_vad.onnx" "$APP/Contents/Resources/"
+cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/"  # ccrun --icon, then iconutil
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -56,6 +57,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <plist version="1.0">
 <dict>
   <key>CFBundleExecutable</key><string>Companion</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundleIdentifier</key><string>local.companion-core.companion</string>
   <key>CFBundleName</key><string>Companion</string>
   <key>CFBundlePackageType</key><string>APPL</string>

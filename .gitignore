@@ -5,3 +5,7 @@ Companion.app/
 *.xcresult
 .DS_Store
 .claude/
+iOS/Resources/
+iOS/Companion.xcodeproj/
+iOS/.build/
+iOS/App/Info.plist
