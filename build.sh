@@ -67,6 +67,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>NSHighResolutionCapable</key><true/>
   <key>NSMicrophoneUsageDescription</key>
   <string>Companion listens so you can talk with it. Everything it hears stays on this Mac.</string>
+  <key>NSCameraUsageDescription</key>
+  <string>Companion watches for who is talking so it can turn to them. Nothing it sees is kept or leaves this Mac.</string>
 </dict>
 </plist>
 PLIST

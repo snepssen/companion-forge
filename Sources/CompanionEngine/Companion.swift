@@ -75,6 +75,19 @@ public final class Companion {
     public var listening: Bool { phase == .live }
     /// How the device is moving, for the face to follow.
     public let motion = MotionSense()
+    /// Where whoever is talking is, for the face to turn to.
+    public let attention = AttentionSense()
+    private var watcher: Watcher?
+
+    /// Watch with the front camera for who is talking, and look at them.
+    /// Off unless chosen; nothing it sees is kept. Remembered.
+    public var watching: Bool = UserDefaults.standard.bool(forKey: "watching") {
+        didSet {
+            UserDefaults.standard.set(watching, forKey: "watching")
+            guard watching != oldValue, phase == .live else { return }
+            Task { await watch(watching) }
+        }
+    }
     public var level: Float { audio?.buffer.level ?? 0 }
 
     private var recognizer: Recognizer?
@@ -210,7 +223,8 @@ public final class Companion {
             let log = try? ConversationLog(directory: Resources.conversations)
             let (stream, continuation) = AsyncStream<LoopEvent>.makeStream()
             let loop = Loop(audio: audio, vad: try SileroVAD(model: vadURL), recognizer: recognizer, brain: brain,
-                            voice: voice, memory: memory, log: log, timing: timing, echoLevel: echoLevel,
+                            voice: voice, memory: memory, attention: attention, log: log, timing: timing,
+                            echoLevel: echoLevel,
                             emit: Self.forward(to: continuation))
             lastActivity = Duplex.now
             idleWatch = Task { [weak self] in
@@ -226,6 +240,7 @@ public final class Companion {
                 for await event in stream { self?.handle(event) }
             }
             phase = .live
+            if watching { await watch(true) }
         } catch {
             audio?.stop()
             audio = nil
@@ -243,6 +258,8 @@ public final class Companion {
 
     /// Stop listening for a moment, to start again with something changed.
     func pause() {
+        watcher?.stop()
+        watcher = nil
         loop?.cancel()
         events?.cancel()
         idleWatch?.cancel()
@@ -255,6 +272,25 @@ public final class Companion {
         face.hush(at: Duplex.now)
         face.set(.idle, at: Duplex.now)
         if phase == .live { phase = .ready }
+    }
+
+    // MARK: watching
+
+    private func watch(_ on: Bool) async {
+        watcher?.stop()
+        watcher = nil
+        guard on else { return }
+        guard await Watcher.permission() else {
+            notice = "To look at whoever is talking, allow Companion the camera in Settings."
+            return
+        }
+        let watcher = Watcher(attention: attention)
+        do {
+            try watcher.start()
+            self.watcher = watcher
+        } catch {
+            notice = error.localizedDescription
+        }
     }
 
     // MARK: being shaken

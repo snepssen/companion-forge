@@ -91,6 +91,7 @@ public actor Loop {
     private let voice: Voice
     private let log: ConversationLog?
     private let memory: Memory?
+    private let attention: AttentionSense?
     private let emit: @Sendable (LoopEvent) -> Void
     private var taker: TurnTaker
     private var history: [Turn] = []
@@ -101,7 +102,7 @@ public actor Loop {
     private var echoLevel: EchoLevel
 
     public init(audio: any AudioIO, vad: SileroVAD, recognizer: Recognizer, brain: Brain, voice: Voice,
-                memory: Memory? = nil, log: ConversationLog?,
+                memory: Memory? = nil, attention: AttentionSense? = nil, log: ConversationLog?,
          timing: PauseModel, echoLevel: EchoLevel = EchoLevel(), emit: @escaping @Sendable (LoopEvent) -> Void) {
         self.audio = audio
         self.vad = vad
@@ -110,6 +111,7 @@ public actor Loop {
         self.voice = voice
         self.log = log
         self.memory = memory
+        self.attention = attention
         self.emit = emit
         taker = TurnTaker(model: timing)
         self.echoLevel = echoLevel
@@ -132,6 +134,7 @@ public actor Loop {
                     return
                 }
                 listenForEcho(samples, behind: available - processed)
+                if speech { listenForWhere() }
                 act(taker.tick(at: t, speech: speech, probability: vad.probability), at: t)
             }
             finishIfSaid()
@@ -168,6 +171,14 @@ public actor Loop {
         guard case .replying = taker.phase, audio.backlog > 0 else { return }
         let end = Duplex.now - Double(behind) / 16_000
         echoLevel.hear(mic: frame, played: audio.reference(from: end - Double(frame.count) / 16_000, to: end))
+    }
+
+    /// Someone is speaking: where from, if the microphone has two sides.
+    /// Its own voice isn't someone to turn to.
+    private func listenForWhere() {
+        guard let attention, audio.backlog <= 0, let (left, right) = audio.balance,
+              let across = StereoBearing.across(left: left, right: right) else { return }
+        attention.hear(Point(across, 0), weight: 0.5)
     }
 
     // MARK: drafting

@@ -35,6 +35,7 @@ targets:
       properties:
         CFBundleDisplayName: Companion
         NSMicrophoneUsageDescription: Companion listens so you can talk with it. Everything it hears stays on this device.
+        NSCameraUsageDescription: Companion watches for who is talking so it can turn to them. Nothing it sees is kept or leaves this device.
         UILaunchScreen:
           UIColorName: ""
         UIApplicationSceneManifest:

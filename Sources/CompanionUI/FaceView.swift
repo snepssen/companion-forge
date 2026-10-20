@@ -12,23 +12,28 @@ public struct FaceView: View {
     public var hearing: () -> Float
     /// How the device is moving, read every frame.
     public var felt: () -> Felt
+    /// Where whoever is talking is, read every frame.
+    public var look: () -> Point?
 
     /// One grid for every expression, so the cells never move.
     static let grid = FaceMatrix.grid(for: Expression.allCases.map(\.face))
 
     public init(performance: FacePerformance, colour: Color = VisorColour.cyan.color, style: VisorStyle = .panel,
-                hearing: @escaping () -> Float = { 0 }, felt: @escaping () -> Felt = { .still }) {
+                hearing: @escaping () -> Float = { 0 }, felt: @escaping () -> Felt = { .still },
+                look: @escaping () -> Point? = { nil }) {
         self.performance = performance
         self.colour = colour
         self.style = style
         self.hearing = hearing
         self.felt = felt
+        self.look = look
     }
 
     public var body: some View {
         TimelineView(.animation) { _ in
             Canvas { context, size in
-                let pose = felt().apply(to: performance.pose(at: ProcessInfo.processInfo.systemUptime))
+                let posed = performance.pose(at: ProcessInfo.processInfo.systemUptime)
+                let pose = felt().apply(to: Attention.apply(look(), mood: performance.mood, to: posed))
                 Self.draw(pose, in: &context, size: size, colour: colour, style: style, hearing: Double(hearing()))
             }
         }

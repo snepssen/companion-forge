@@ -280,6 +280,37 @@ check("nothing remembered, nothing said", Recollection().reminder() == nil && Re
 let transcript = Remembering.transcript([(4, Turn(.person, "Hi.")), (5, Turn(.companion, "Hello!"))], known: ["Their name is Sam."])
 check("the transcript numbers turns as the log does", transcript.contains("[4] Person: Hi.") && transcript.contains("[5] Companion: Hello!"))
 
+// MARK: attention
+
+check("louder on the right is to the right", (StereoBearing.across(left: 0.05, right: 0.1) ?? 0) > 0.5)
+check("louder on the left is to the left", (StereoBearing.across(left: 0.1, right: 0.05) ?? 0) < -0.5)
+check("even is ahead", abs(StereoBearing.across(left: 0.07, right: 0.07) ?? 1) < 1e-9)
+check("silence says nothing", StereoBearing.across(left: 0, right: 0) == nil)
+check("a mirrored microphone can be flipped", (StereoBearing.across(left: 0.05, right: 0.1, flipped: true) ?? 0) < -0.5)
+
+let talker = SeenFace(position: Point(0.6, 0), size: 0.05, mouth: [0.02, 0.12, 0.03, 0.15, 0.04, 0.11])
+let smiler = SeenFace(position: Point(-0.5, 0.1), size: 0.12, mouth: [0.08, 0.08, 0.09, 0.08, 0.08, 0.09])
+check("a moving mouth is talking, a held smile isn't", talker.talking > SeenFace.talks && smiler.talking < SeenFace.talks)
+check("it looks at whoever is talking, near or not", SeenFace.lookAt([smiler, talker])?.position == talker.position
+    && SeenFace.lookAt([smiler, talker])?.weight == 1)
+check("with nobody talking, at the nearest, gently", SeenFace.lookAt([smiler])?.position == smiler.position
+    && (SeenFace.lookAt([smiler])?.weight ?? 1) < 1)
+check("nobody there, nowhere", SeenFace.lookAt([]) == nil)
+
+var attention = Attention()
+attention.hear(Point(0.8, 0), at: 1)
+check("the first bearing is looked at", attention.look(at: 1) == Point(0.8, 0))
+attention.hear(Point(-0.8, 0), at: 1.05)
+check("then it turns, not jumps", (attention.look(at: 1.05)?.x ?? -1) > 0)
+for step in 1...20 { attention.hear(Point(-0.8, 0), at: 1.05 + Double(step) * 0.05) }
+check("and gets there", near(attention.look(at: 2.05)?.x ?? 0, -0.8, 0.05))
+check("and lets go when nothing more comes", attention.look(at: 2.05 + Attention.memory + 0.1) == nil)
+let turned = Attention.apply(Point(1, 0), mood: .listening, to: Pose(face: Expression.visor.face))
+check("listening, it looks right at them and turns its head", turned.gaze == Point(1, 0) && turned.offset.x > 0
+    && turned.tilt > 0)
+check("thinking, it only glances", Attention.apply(Point(1, 0), mood: .thinking, to: Pose(face: Expression.visor.face)).gaze.x < 0.3)
+check("no bearing, no change", Attention.apply(nil, mood: .listening, to: Pose(face: Expression.visor.face)).gaze == .zero)
+
 // MARK: memory commands
 
 check("remember that…", MemoryCommand.parse("Remember that my sister's birthday is March 3rd.")

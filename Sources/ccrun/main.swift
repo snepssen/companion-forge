@@ -7,6 +7,7 @@
 //   ccrun --echo 0.3            the same with far more echo leaking through
 //   ccrun --shake               with the phone shaken between turns
 //   ccrun --commands            asked out loud to remember something, then to forget it
+//   ccrun --from-right          spoken to from the right of a stereo microphone, then the left
 //   ccrun --model qwen3-4b-instruct-2507-4bit
 //   ccrun --faces <folder>      the face in each mood and some visemes, as PNGs
 //         [--style smooth] [--colour magenta] [--hearing 0.05]   (also for --window)
@@ -411,6 +412,14 @@ final class Played: AudioIO, @unchecked Sendable {
 
     var backlog: Double { lock.withLock { max(0, end - Duplex.now) } }
 
+    /// Which side the person speaks from, as a stereo microphone would hear
+    /// it: their voice this much louder on that side. nil for a mono one.
+    var side: Double?
+
+    var balance: (left: Double, right: Double)? {
+        side.map { (left: 0.08 * (1 - $0 * 0.5), right: 0.08 * (1 + $0 * 0.5)) }
+    }
+
     /// Forget when the last reply started, to wait for the next one.
     func markReply() { lock.withLock { firstPlayed = nil } }
 
@@ -507,8 +516,9 @@ final class Tally: @unchecked Sendable {
 }
 let tally = Report.tally
 
+let attention = AttentionSense()
 let loop = Loop(audio: audio, vad: try SileroVAD(model: vadURL), recognizer: recognizer, brain: brain, voice: voice,
-                memory: memory, log: nil, timing: PauseModel(), emit: Report.handle)
+                memory: memory, attention: attention, log: nil, timing: PauseModel(), emit: Report.handle)
 
 /// Away from the main actor: the loop calls it from its own.
 enum Report {
@@ -589,6 +599,13 @@ func turn(_ phrases: [String], pausing: Double = 0.55) async throws {
         tally.waitingForReply = true
     }
     audio.markReply()
+    if let look = attention.look() {
+        let pose = Attention.apply(look, mood: .listening, to: Pose(face: Expression.curious.face))
+        say(String(format: "the face turned to (%.2f, %.2f): eyes at %.2f across, head turned %.1f°", look.x, look.y,
+                   pose.gaze.x, pose.tilt))
+    } else if CommandLine.arguments.contains("--from-right") || CommandLine.arguments.contains("--from-left") {
+        say("the face had nowhere to turn")
+    }
 }
 
 if CommandLine.arguments.contains("--commands") {
@@ -609,9 +626,15 @@ if CommandLine.arguments.contains("--commands") {
     exit(0)
 }
 
+if CommandLine.arguments.contains("--from-right") { audio.side = 0.8 }
+if CommandLine.arguments.contains("--from-left") { audio.side = -0.8 }
 await mouth.pause(1)
 try await turn(["Hi there.", "I just got back from a long walk by the river."])
 await mouth.pauseForReply(after: Report.ended())
+if CommandLine.arguments.contains("--from-right") {
+    // Then they move to the other side.
+    audio.side = -0.8
+}
 await mouth.pause(1.5)
 if CommandLine.arguments.contains("--shake") {
     let before = Report.ended()

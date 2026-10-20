@@ -88,6 +88,29 @@ echo-cancelled engine; if that combination won't start on a device, it falls
 back to the plain voice and says so. `ccrun --spatial-check` plays through
 it silently. It has not yet been heard on AirPods.
 
+## Turning to whoever is talking
+
+The face looks at whoever is speaking: straight at them while it listens,
+mostly at them while it answers, only a glance while it thinks; its head
+turns a little after its eyes. It knows where they are two ways:
+
+- **The front camera**, if you turn on "Look at whoever is talking" in
+  Settings (off by default). Vision finds the faces and their lips about ten
+  times a second; the one whose mouth keeps opening and shutting is talking,
+  and with nobody talking it looks at the nearest face. Each picture is
+  looked at and let go. On a Mac it uses the built-in camera, never a virtual
+  one. This works with the echo canceller on, so it works out loud.
+- **Stereo microphones**, on an iPhone or iPad with the echo canceller off
+  (headphones): the level difference between the front microphones' two
+  sides says left or right. The canceller gives one channel, so out loud
+  this is the camera's job. A Mac's microphone is one channel.
+
+`ccrun --from-right` speaks from one side of a stereo microphone and then
+the other: the face turned to 0.84 across, then to -0.84. Neither the camera
+nor the phone's stereo microphones have been tried on a device yet; if the
+face turns the wrong way, the picture or the microphone is mirrored, and
+`Watcher.mirrored` or `StereoBearing`'s `flipped` puts it right.
+
 ## Moving it
 
 The face hangs behind the glass on a spring (`Sway`): move the phone and the

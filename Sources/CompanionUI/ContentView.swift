@@ -19,7 +19,8 @@ public struct ContentView: View {
         VStack(spacing: 0) {
             FaceView(performance: companion.face, colour: colour.color, style: style,
                      hearing: { [companion] in companion.listening ? companion.level : 0 },
-                     felt: { [motion = companion.motion] in motion.felt() })
+                     felt: { [motion = companion.motion] in motion.felt() },
+                     look: { [attention = companion.attention] in attention.look() })
             #if os(macOS)
             .background(WindowMotion(motion: companion.motion))
             #endif
@@ -248,6 +249,10 @@ struct SettingsView: View {
             Section("Speaking") {
                 Toggle("Echo cancellation", isOn: $companion.echoCancellation)
                 Text("Lets it talk out of the speakers without hearing itself. Turn it off only on headphones.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Toggle("Look at whoever is talking", isOn: $companion.watching)
+                Text("Uses the front camera to see who is talking and turn to them. Nothing it sees is kept or leaves "
+                     + "this device. Without the echo canceller, the microphones tell it too.")
                     .font(.caption).foregroundStyle(.secondary)
                 Toggle("Spatial voice", isOn: $companion.spatialVoice)
                 Text("On AirPods, its voice comes from where your phone or Mac is, and stays there when you turn your head.")

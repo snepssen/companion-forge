@@ -72,6 +72,12 @@ public protocol AudioIO: AnyObject, Sendable {
     /// What was played between two times on `Duplex.now`'s clock, at 16 kHz:
     /// the reference its echo is measured against.
     func reference(from start: Double, to end: Double) -> [Float]
+    /// How loud the microphone's two sides were just now, when it has two.
+    var balance: (left: Double, right: Double)? { get }
+}
+
+extension AudioIO {
+    public var balance: (left: Double, right: Double)? { nil }
 }
 
 /// What was played, at 16 kHz, kept for a minute to measure echo against.
@@ -176,6 +182,7 @@ public final class Duplex: AudioIO, @unchecked Sendable {
     private let lock = NSLock()
     private var end = 0.0  // uptime the last scheduled clip finishes
     private var played = PlayedClips()
+    private var sides: (left: Double, right: Double, at: Double)?
 
     /// The clock clips are scheduled on, and the face is drawn on.
     public static var now: Double { ProcessInfo.processInfo.systemUptime }
@@ -188,6 +195,10 @@ public final class Duplex: AudioIO, @unchecked Sendable {
         let session = AVAudioSession.sharedInstance()
         try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetoothA2DP])
         try session.setActive(true)
+        // Without the echo canceller, which hands over one channel, the
+        // phone's front microphones can be had in stereo: where a voice comes
+        // from, for the face to turn to. A preference; the route may refuse.
+        if !echoCancellation { Self.preferStereo(session) }
         #endif
         if echoCancellation {
             // Before anything is connected: switching it on rebuilds both I/O units.
@@ -271,11 +282,38 @@ public final class Duplex: AudioIO, @unchecked Sendable {
         lock.withLock { played.reference(from: start, to: end) }
     }
 
+    public var balance: (left: Double, right: Double)? {
+        lock.withLock { sides.flatMap { Self.now - $0.at < 0.25 ? ($0.left, $0.right) : nil } }
+    }
+
+    #if os(iOS)
+    static func preferStereo(_ session: AVAudioSession) {
+        guard let builtIn = session.availableInputs?.first(where: { $0.portType == .builtInMic }),
+              let front = builtIn.dataSources?.first(where: { $0.orientation == .front }),
+              front.supportedPolarPatterns?.contains(.stereo) == true
+        else { return }
+        try? front.setPreferredPolarPattern(.stereo)
+        try? builtIn.setPreferredDataSource(front)
+        try? session.setPreferredInput(builtIn)
+        // So left and right are the viewer's, held upright.
+        try? session.setPreferredInputOrientation(.portrait)
+    }
+    #endif
+
     /// Seconds still to be said.
     public var backlog: Double { lock.withLock { max(0, end - Self.now) } }
 
     private func receive(_ pcm: AVAudioPCMBuffer) {
         guard let converter else { return }
+        if pcm.format.channelCount >= 2, let data = pcm.floatChannelData, pcm.frameLength > 0 {
+            func level(_ channel: Int) -> Double {
+                var sum: Float = 0
+                for i in 0..<Int(pcm.frameLength) { sum += data[channel][i] * data[channel][i] }
+                return Double((sum / Float(pcm.frameLength)).squareRoot())
+            }
+            let (left, right) = (level(0), level(1))
+            lock.withLock { sides = (left, right, Self.now) }
+        }
         let capacity = AVAudioFrameCount(Double(pcm.frameLength) * 16_000 / pcm.format.sampleRate) + 32
         guard let out = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: capacity) else { return }
         var fed = false
