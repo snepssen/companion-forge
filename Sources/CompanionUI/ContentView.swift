@@ -285,8 +285,9 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         #if os(macOS)
-        .frame(width: 400)
-        .fixedSize(horizontal: false, vertical: true)
+        // A fixed height, so the form scrolls: sized to its content it ran
+        // off the bottom of the screen with nothing to scroll.
+        .frame(width: 420, height: 560)
         #else
         .presentationDetents([.medium, .large])
         #endif
