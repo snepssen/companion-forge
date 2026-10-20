@@ -25,7 +25,7 @@ public actor Memory {
             lasting.lasting = true
             store.add(lasting)
         }
-        if store != loaded { try? save() }
+        if store != loaded { try? Self.write(store, to: file) }
     }
 
     public var notes: [Note] { store.notes.sorted { $0.at > $1.at } }
@@ -124,7 +124,9 @@ public actor Memory {
         }
     }
 
-    private func save() throws {
+    private func save() throws { try Self.write(store, to: file) }
+
+    private static func write(_ store: MemoryStore, to file: URL) throws {
         try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
