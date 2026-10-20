@@ -106,9 +106,24 @@ public struct ContentView: View {
             }
             .buttonStyle(.borderless)
             .accessibilityLabel("Settings")
+            #if os(macOS)
             .popover(isPresented: $settings, arrowEdge: .bottom) {
                 SettingsView(companion: companion)
             }
+            #else
+            // A sheet on iPhone and iPad: an iPad's popover sized itself to
+            // nothing around a form.
+            .sheet(isPresented: $settings) {
+                NavigationStack {
+                    SettingsView(companion: companion)
+                        .navigationTitle("Settings")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar {
+                            ToolbarItem(placement: .confirmationAction) { Button("Done") { settings = false } }
+                        }
+                }
+            }
+            #endif
         }
         .foregroundStyle(.white.opacity(0.8))
     }
