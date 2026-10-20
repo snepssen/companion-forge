@@ -100,7 +100,7 @@ public struct ContentView: View {
             switch companion.face.mood {
             case .listening: "Listening…"
             case .thinking: "Thinking…"
-            case .speaking: "Speaking"
+            case .speaking, .cheerful: "Speaking"
             default: "Listening for you"
             }
         case let .failed(message): message

@@ -54,6 +54,9 @@ at different settings, so any expression is part way to any other and a
 viseme is just a mouth. The dials, the outline geometry and the LED grid are
 ported number for number (`Face/`). The face eases between moods (idle,
 listening, thinking, speaking, surprised) and blinks and breathes on its own.
+A sentence Apple's on-device sentiment score finds glad is said with
+protoke's happy eyes; its sad side isn't used, because it scores plain
+questions as sad as sympathy.
 The mouth follows the words the voice is saying, timed by their spelling
 across each clip.
 

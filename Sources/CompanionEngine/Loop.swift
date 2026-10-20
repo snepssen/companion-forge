@@ -205,7 +205,7 @@ public actor Loop {
         let (start, end) = audio.play(samples)
         reply.said.append(Said(text: sentence, start: start, end: end))
         emit(.saying(sentence, words: SpokenWord.estimate(sentence, duration: end - start), start: start))
-        emit(.mood(.speaking))
+        emit(.mood(Tone.isCheerful(sentence) ? .cheerful : .speaking))
     }
 
     // MARK: the turn changes hands

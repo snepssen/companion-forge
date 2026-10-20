@@ -189,6 +189,7 @@ check("and rests long after", near(performance.pose(at: 30).face.mouth.aperture,
 performance.set(.thinking, at: 40)
 check("a mood eases in", performance.pose(at: 40.05).face != Expression.smug.face)
 check("and arrives", near(performance.pose(at: 41).face.eye.bow, Expression.smug.face.eye.bow, 1e-9))
+check("cheerful is happy eyes, and still speaking", Mood.cheerful.expression == .happy && Mood.cheerful.isSpeaking)
 performance.say(words, at: 50)
 performance.hush(at: 50.3)
 check("hushed, the mouth closes", near(performance.pose(at: 51).face.mouth.aperture, 0, 1e-6))

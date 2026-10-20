@@ -239,6 +239,8 @@ public struct HeadMotion: Sendable {
 /// What the companion is doing, as the face shows it.
 public enum Mood: String, Sendable {
     case idle, listening, thinking, speaking, surprised
+    /// Saying something glad: protoke's happy eyes, ^ ^.
+    case cheerful
 
     public var expression: Expression {
         switch self {
@@ -247,8 +249,11 @@ public enum Mood: String, Sendable {
         case .thinking: .smug
         case .speaking: .visor
         case .surprised: .wide
+        case .cheerful: .happy
         }
     }
+
+    public var isSpeaking: Bool { self == .speaking || self == .cheerful }
 }
 
 /// One frame of the face: its dials, where the head is, and how far the mouth
