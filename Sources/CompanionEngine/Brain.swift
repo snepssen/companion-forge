@@ -21,6 +21,8 @@ public actor Brain {
     /// Writing notes has its own: the conversation's stays as it was.
     private var notesCache: PromptCache
     private let stops: Set<Int>
+    /// Of the last prompt, the tokens that had to be read and its whole length.
+    public private(set) var lastPrompt = (read: 0, length: 0)
     /// The most a reply runs to: about a minute of speech, and a stop for a
     /// model that has started a list.
     static let longest = 240
@@ -58,6 +60,25 @@ public actor Brain {
                      parameters: GenerateParameters(maxTokens: Self.longest, temperature: 0.7, topP: 0.9), emit: emit)
     }
 
+    /// Read the conversation so far into the cache before they speak again,
+    /// as the next reply's prompt will begin. Whenever the window of turns
+    /// has just moved on, that is a few hundred tokens and over a second and
+    /// a half that would otherwise come after they finish talking.
+    public func anticipate(_ history: [Turn], remembering recollection: Recollection = Recollection()) throws {
+        // The turns the next reply will be shown, without the one not yet said.
+        let next = history + [Turn(.person, "")]
+        let shown = Array(next.suffix(Window.shown(next.count)).dropLast())
+        guard !shown.isEmpty else { return }
+        let prompt = try context.tokenizer.applyChatTemplate(
+            messages: Prompts.messages(shown, remembering: Recollection(profile: recollection.profile), windowed: false),
+            tools: nil, additionalContext: ["enable_thinking": false])
+        let fresh = try cache.prepare(for: prompt)
+        guard fresh.count > 1 else { return }
+        let logits = context.model(LMInput.Text(tokens: MLXArray(fresh))[text: .newAxis], cache: cache.kv, state: nil).logits
+        eval(logits)
+        cache.settle(prompt)
+    }
+
     /// Notes from a conversation, as `Remembering` asks for them.
     public func write(_ instructions: String, _ text: String) throws -> String {
         try generate([["role": "system", "content": instructions], ["role": "user", "content": text]], cache: &notesCache,
@@ -71,6 +92,7 @@ public actor Brain {
             additionalContext: ["enable_thinking": false])  // Gemma 4 otherwise reasons aloud: seconds a turn
         try Task.checkCancellation()
         let fresh = try cache.prepare(for: prompt)
+        lastPrompt = (fresh.count, prompt.count)
         var iterator = try TokenIterator(input: LMInput(tokens: MLXArray(fresh)), model: context.model, cache: cache.kv,
                                          parameters: parameters)
         var produced: [Int] = []
@@ -101,9 +123,6 @@ enum Prompts {
     If they cut you off, let it go and listen. You run entirely on their device, with no internet.
     """
 
-    /// How many turns go into the prompt. Memory will bring older ones back as summaries.
-    static let recent = 16
-
     /// The conversation as chat messages. Turns by the same speaker in a row
     /// (a reply cut off before it said anything) are joined: chat templates
     /// expect the roles to alternate, and some refuse otherwise.
@@ -111,11 +130,12 @@ enum Prompts {
     /// What it knows about them goes in the instructions, which change only
     /// when a note is written. What came to mind for this turn goes before
     /// their last words, so everything earlier stays in the attention cache.
-    static func messages(_ turns: [Turn], remembering recollection: Recollection = Recollection()) -> [[String: any Sendable]] {
+    static func messages(_ turns: [Turn], remembering recollection: Recollection = Recollection(),
+                         windowed: Bool = true) -> [[String: any Sendable]] {
         let instructions = [system, recollection.knowing].compactMap { $0 }.joined(separator: "\n\n")
         var messages: [[String: any Sendable]] = [["role": "system", "content": instructions]]
         var previous: Turn.Speaker?
-        for turn in turns.suffix(recent) {
+        for turn in windowed ? Array(turns.suffix(Window.shown(turns.count))) : turns {
             let role = turn.speaker == .person ? "user" : "assistant"
             let text = turn.interrupted ? turn.text + "—" : turn.text
             if messages.count == 1 && turn.speaker == .companion { continue }  // the first must be theirs

@@ -11,6 +11,7 @@
 //   ccrun --memory              earlier conversations written up, then recalled
 //   ccrun --icon <file.png>     the app icon, 1024 px
 //   ccrun --recall              how the embedder ranks notes, for the thresholds
+//   ccrun --long [--anticipate] a long conversation: prompt re-reading and first-word times
 //
 // Built with build.sh's xcodebuild (MLX needs its Metal library beside it):
 //   .build/xcode/Build/Products/Release/ccrun
@@ -33,6 +34,20 @@ func stamp() -> String { String(format: "[%6.2f]", Duplex.now - Run.started) }
 func say(_ line: String) {
     print("\(stamp()) \(line)")
     fflush(stdout)
+}
+
+/// What iOS would hold against the app: its physical footprint, now and at
+/// its peak, in GB. On Apple silicon it includes what MLX has on the GPU.
+func footprint() -> (now: Double, peak: Double) {
+    var info = task_vm_info_data_t()
+    var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size)
+    let result = withUnsafeMutablePointer(to: &info) {
+        $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+            task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+        }
+    }
+    guard result == KERN_SUCCESS else { return (0, 0) }
+    return (Double(info.phys_footprint) / 1e9, Double(info.ledger_phys_footprint_peak) / 1e9)
 }
 
 func resample(_ samples: [Float], from rate: Double, to target: Double = 16_000) -> [Float] {
@@ -213,6 +228,48 @@ func memoryRun() async throws {
     }
 }
 
+/// A long conversation in text: how much of each prompt the model has to read
+/// again, and how soon its first words come, as the conversation outgrows
+/// the window of turns it is shown.
+func longRun() async throws {
+    let model = ModelCatalog.model(option("--model")) ?? ModelCatalog.recommended
+    guard let directory = ModelStore.location(of: model) else { print("\(model.name) isn't downloaded"); return }
+    let brain = try await Brain(model: model, at: directory)
+    try await brain.warmUp()
+    let lines = ["Hi there.", "I had a long day at work.", "I'm a nurse, nights mostly.", "It was busy, three admissions.",
+                 "One of them was a kid with a broken arm.", "He was really brave about it.", "Anyway, I'm home now.",
+                 "My dog is asleep on the sofa.", "His name is Biscuit.", "He's a beagle.", "What should I eat?",
+                 "I don't have eggs.", "Pasta sounds good.", "What sauce?", "I have tomatoes and garlic.",
+                 "Okay, I'll do that.", "Do you like music?", "I'm learning guitar.", "Just three chords so far.",
+                 "My fingers hurt.", "Any tips?", "Thanks, goodnight."]
+    var turns: [Turn] = []
+    for (index, line) in lines.enumerated() {
+        turns.append(Turn(.person, line))
+        let started = Duplex.now
+        let first = Clock()
+        let reply = try await brain.reply(to: turns) { _ in first.mark() }
+        let (read, length) = await brain.lastPrompt
+        print(String(format: "%2d  read %4d of %4d tokens, first words %.2f s", index + 1, read, length,
+                     (first.at ?? Duplex.now) - started))
+        turns.append(Turn(.companion, reply))
+        // As the loop does once a reply has been said.
+        if CommandLine.arguments.contains("--anticipate") { try await brain.anticipate(turns) }
+    }
+}
+
+/// When something first happened, from any thread.
+final class Clock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var first: Double?
+    var at: Double? { lock.withLock { first } }
+    func mark() { lock.withLock { if first == nil { first = Duplex.now } } }
+}
+
+if CommandLine.arguments.contains("--long") {
+    try await longRun()
+    exit(0)
+}
+
 if CommandLine.arguments.contains("--memory") {
     try await memoryRun()
     exit(0)
@@ -348,7 +405,10 @@ let voice = try Voice(model: voiceURL, espeakData: espeak)
 let recognizer = try await Recognizer.load()
 let brain = try await Brain(model: model, at: directory)
 try await brain.warmUp()
-say("loaded")
+let embedder = try await Embedder.load()
+let memoryFolder = FileManager.default.temporaryDirectory.appending(path: "ccrun-\(UUID().uuidString)")
+let memory = Memory(file: memoryFolder.appending(path: "memory.json"), conversations: memoryFolder, embedder: embedder)
+say(String(format: "loaded; footprint %.2f GB", footprint().now))
 
 func speech(_ text: String) throws -> [Float] { resample(try voice.speak(text), from: voice.sampleRate) }
 
@@ -368,7 +428,7 @@ final class Tally: @unchecked Sendable {
 let tally = Report.tally
 
 let loop = Loop(audio: audio, vad: try SileroVAD(model: vadURL), recognizer: recognizer, brain: brain, voice: voice,
-                log: nil, timing: PauseModel(), emit: Report.handle)
+                memory: memory, log: nil, timing: PauseModel(), emit: Report.handle)
 
 /// Away from the main actor: the loop calls it from its own.
 enum Report {
@@ -405,6 +465,9 @@ enum Report {
     case let .overlap(heard, saying, loudness, echo):
         let loud = loudness.map { String(format: "%.1fx its echo", $0) } ?? "echo level not learned yet"
         say("overlap: heard \"\(heard)\" (\(loud)) while saying \"\(saying)\" → \(echo ? "echo" : "interruption")")
+    case let .drafted(t):
+        say(String(format: "draft: heard %.2f s, recalled %.2f, first words %.2f, first sentence %.2f, its voice %.2f; read %d of %d prompt tokens",
+                   t.transcribed, t.recalled, t.firstWords, t.firstSentence, t.firstVoice, t.promptRead, t.promptLength))
     case let .echoLevel(level):
         if let leak = level.leak { say(String(format: "echo comes back at %.3f of what was played", leak)) }
     case let .problem(message): say("PROBLEM: \(message)")
@@ -451,5 +514,9 @@ tally.lock.withLock {
           + tally.latencies.map { String(format: "%.2f s", $0) }.joined(separator: ", "))
     print(String(format: "learned: %d pauses, waits %.2f s after a statement, %d cut-ins",
                  tally.timing.pauses.count, tally.timing.wait(after: .statement), tally.timing.cutIns))
+    let (now, peak) = footprint()
+    print(String(format: "footprint with %@, recognition, the embedder and the voice: %.2f GB now, %.2f GB at peak",
+                 model.name, now, peak))
 }
+try? FileManager.default.removeItem(at: memoryFolder)
 exit(0)

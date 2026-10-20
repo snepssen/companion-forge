@@ -280,6 +280,19 @@ check("nothing remembered, nothing said", Recollection().reminder() == nil && Re
 let transcript = Remembering.transcript([(4, Turn(.person, "Hi.")), (5, Turn(.companion, "Hello!"))], known: ["Their name is Sam."])
 check("the transcript numbers turns as the log does", transcript.contains("[4] Person: Hi.") && transcript.contains("[5] Companion: Hello!"))
 
+// MARK: window
+
+check("a short conversation is shown whole", Window.shown(5) == 5 && Window.shown(16) == 16)
+check("then it grows a turn at a time", Window.shown(17) == 17 && Window.shown(23) == 23)
+check("and drops a step at once", Window.shown(24) == 16)
+/// The index of the first turn shown, for a conversation of `count` turns.
+func firstShown(_ count: Int) -> Int { count - Window.shown(count) }
+let starts = Set((17...60).map(firstShown))
+check("the prompt's start moves once a step, not once a turn", starts.count <= (60 - 17) / Window.step + 2)
+check("history is kept whole up to its limit", Window.trim(Window.kept) == 0)
+check("then trimmed by two steps", Window.trim(Window.kept + 1) == Window.step * 2)
+check("which leaves what is shown as it was", Window.shown(Window.kept + 1) == Window.shown(Window.kept + 1 - Window.trim(Window.kept + 1)))
+
 // MARK: log
 
 let folder = FileManager.default.temporaryDirectory.appending(path: "cccheck-\(UUID().uuidString)")

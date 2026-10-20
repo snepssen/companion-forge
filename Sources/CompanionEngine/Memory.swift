@@ -19,6 +19,7 @@ public actor Memory {
     }
 
     public var notes: [Note] { store.notes.sorted { $0.at > $1.at } }
+    public var profile: [Note] { store.profile }
 
     /// What comes to mind for what they just said.
     public func recollect(for text: String, now: Date = Date()) async -> Recollection {

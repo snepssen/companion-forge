@@ -128,12 +128,37 @@ reply's echo leaking back into the "microphone" at a chosen level:
     .build/xcode/Build/Products/Release/ccrun --memory     # notes written, then recalled
     .build/xcode/Build/Products/Release/ccrun --icon Resources/icon-1024.png   # the icon, from the face
 
-Measured on this Mac with Gemma 4 E4B, 2026-10-20: the reply starts
-**0.9 to 1.5 s** after you stop talking. With the echo leaking back at 0.05
+Measured on this Mac with Gemma 4 E4B, 2026-10-20 (more under Measured):
+the reply starts **0.9 to 1.8 s** after you stop talking. With the echo leaking back at 0.05
 (roughly what voice processing leaves), echo measured 1.0× its learned level
 and an interruption 11× to 18×, so none was stopped falsely and the
 interruption was caught on its first check. At 0.3 (barely cancelled), 17
 echo fragments were let go and the interruption was caught on its third check.
+
+## Measured
+
+On an M1 with 16 GB, 2026-10-20, with `ccrun`. Footprint is what iOS holds
+against an app, and on Apple silicon it includes what MLX keeps on the GPU.
+It is measured with recognition, the embedder, the voice and memory all
+loaded.
+
+| model | footprint | at peak | from the end of your speech to the reply's first sound |
+|---|---|---|---|
+| Qwen3 4B (8 GB iPhones) | 3.0 GB | 3.0 GB | 0.89–1.72 s |
+| Gemma 4 E2B | 3.2 GB | 4.2 GB | 0.81–1.05 s |
+| Gemma 4 E4B (Mac, 12 GB iPhones) | 4.8 GB | 5.8 GB | 1.07–1.76 s |
+
+Most of that time is the learned wait itself: a reply is drafted halfway
+into your pause, transcribed in 0.14 s, its first words written 0.3 s
+later and its first sentence voiced by about 0.8 s, so it is ready when the
+wait ends. The rest is a long first sentence.
+
+The model is shown the last 16 to 23 turns; the window moves 8 turns at a
+time rather than one, and after each reply the model reads the next prompt
+in while you talk. Sliding a turn at a time made every reply past the
+sixteenth turn re-read about 230 tokens, and its first words came 1.86 s
+after you finished instead of 0.31 s (`ccrun --long`). With both changes,
+every turn of a 22-turn conversation started in 0.31 to 0.37 s.
 
 ## From translate-core
 

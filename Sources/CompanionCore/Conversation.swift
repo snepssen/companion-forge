@@ -69,3 +69,29 @@ public final class ConversationLog: @unchecked Sendable {
             .map { try decoder.decode(Turn.self, from: Data($0.utf8)) }
     }
 }
+
+/// How much of the conversation the model is shown.
+///
+/// A window that slides one turn at a time changes the start of the prompt
+/// with every reply, and the model's cache is only good up to the first token
+/// that changed: past 16 turns it re-read about 230 tokens a reply and its
+/// first words came 1.86 s after the turn instead of 0.31 s (ccrun --long,
+/// Gemma 4 E4B, this Mac). So the window grows a turn at a time and drops
+/// `step` turns at once: the prompt's start moves once every `step` turns.
+public enum Window {
+    public static let recent = 16
+    public static let step = 8
+    /// What the loop keeps at most; trimmed `step * 2` at a time, which
+    /// leaves `shown` where it was.
+    public static let kept = 64
+
+    /// How many of the last `count` turns to show.
+    public static func shown(_ count: Int) -> Int {
+        count <= recent ? count : recent + (count - recent) % step
+    }
+
+    /// How many turns to drop from the front of a history of `count`.
+    public static func trim(_ count: Int) -> Int {
+        count > kept ? step * 2 * ((count - kept + step * 2 - 1) / (step * 2)) : 0
+    }
+}

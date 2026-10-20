@@ -15,6 +15,8 @@ public enum LoopEvent: Sendable {
     /// A reply, all of it or what was said before it was cut off.
     case replied(String, interrupted: Bool)
     case timing(PauseModel)
+    /// Where a draft's time went.
+    case drafted(DraftTimes)
     /// How loud the reply comes back, as learned so far: kept for the next session.
     case echoLevel(EchoLevel)
     /// Speech over a reply: what it was transcribed as, how loud it was as a
@@ -22,6 +24,18 @@ public enum LoopEvent: Sendable {
     /// the verdict.
     case overlap(heard: String, saying: String, loudness: Double?, echo: Bool)
     case problem(String)
+}
+
+/// Seconds from the start of a draft to each stage of it, and how much of
+/// the prompt the model had to read rather than find in its cache.
+public struct DraftTimes: Sendable {
+    public var transcribed = 0.0
+    public var recalled = 0.0
+    public var firstWords = 0.0
+    public var firstSentence = 0.0
+    public var firstVoice = 0.0
+    public var promptRead = 0
+    public var promptLength = 0
 }
 
 /// The live conversation: microphone frames through the voice detector into
@@ -45,6 +59,8 @@ public actor Loop {
         var id = 0
         var person = ""
         var held: [(text: String, samples: [Float])] = []
+        var times = DraftTimes()
+        var started = 0.0
         var said: [Said] = []
         var committed = false
         var written = false
@@ -152,9 +168,11 @@ public actor Loop {
     }
 
     private func write(_ id: Int, _ samples: [Float]) async {
+        reply.started = Duplex.now
         do {
             let text = try await recognizer.transcribe(samples)
             guard reply.id == id, !Task.isCancelled else { return }
+            reply.times.transcribed = Duplex.now - reply.started
             if text.isEmpty {
                 taker.discard()
                 reply = Reply(id: id + 1)
@@ -166,6 +184,7 @@ public actor Loop {
             let turns = history + [Turn(.person, text)]
             let recollection = await memory?.recollect(for: text) ?? Recollection()
             guard reply.id == id, !Task.isCancelled else { return }
+            reply.times.recalled = Duplex.now - reply.started
             if !recollection.notes.isEmpty || !recollection.excerpt.isEmpty { emit(.recalled(recollection)) }
 
             let (pieces, continuation) = AsyncStream<String>.makeStream()
@@ -177,14 +196,24 @@ public actor Loop {
             var splitter = SentenceSplitter()
             await withTaskCancellationHandler {
                 for await piece in pieces {
-                    for sentence in splitter.feed(piece) { await speak(sentence, id) }
+                    if reply.id == id && reply.times.firstWords == 0 { reply.times.firstWords = Duplex.now - reply.started }
+                    for sentence in splitter.feed(piece) {
+                        if reply.id == id && reply.times.firstSentence == 0 {
+                            reply.times.firstSentence = Duplex.now - reply.started
+                        }
+                        await speak(sentence, id)
+                    }
                 }
             } onCancel: {
                 generation.cancel()
             }
             for sentence in splitter.finish() { await speak(sentence, id) }
             _ = try await generation.value
-            if reply.id == id { reply.written = true }
+            if reply.id == id {
+                reply.written = true
+                (reply.times.promptRead, reply.times.promptLength) = await brain.lastPrompt
+                emit(.drafted(reply.times))
+            }
         } catch is CancellationError {
         } catch {
             if reply.id == id { emit(.problem(error.localizedDescription)) }
@@ -198,6 +227,7 @@ public actor Loop {
         guard let samples = try? await Task.detached(operation: { try voice.speak(sentence) }).value,
               !samples.isEmpty, reply.id == id, !Task.isCancelled
         else { return }
+        if reply.times.firstVoice == 0 { reply.times.firstVoice = Duplex.now - reply.started }
         if reply.committed { say(sentence, samples) } else { reply.held.append((sentence, samples)) }
     }
 
@@ -229,6 +259,7 @@ public actor Loop {
         emit(.replied(text, interrupted: false))
         emit(.echoLevel(echoLevel))
         taker.replyFinished()
+        anticipate()
         emit(.mood(.idle))
     }
 
@@ -274,11 +305,21 @@ public actor Loop {
         reply = Reply(id: id + 1)
         emit(.timing(taker.model))
         emit(.mood(.listening))
+        anticipate()
+    }
+
+    /// Have the model read the conversation so far while they talk.
+    private func anticipate() {
+        let (brain, memory, history) = (brain, memory, history)
+        Task {
+            let profile = await memory?.profile ?? []
+            try? await brain.anticipate(history, remembering: Recollection(profile: profile))
+        }
     }
 
     private func record(_ turn: Turn) {
         history.append(turn)
-        if history.count > 64 { history.removeFirst(history.count - 64) }
+        history.removeFirst(Window.trim(history.count))
         do {
             try log?.append(turn)
         } catch {
