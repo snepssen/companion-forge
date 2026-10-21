@@ -45,7 +45,9 @@ public struct FaceView: View {
                 let posed = performance.pose(at: now)
                 let danced = Dance.apply(dance(), to: posed)
                 let pose = felt().apply(to: Attention.apply(look(), mood: performance.mood, to: danced))
-                Self.draw(pose, in: &context, size: size, colour: colour, style: style, hearing: Double(hearing()))
+                // Drowsy late at night: the visor dims to under half.
+                let lit = colour.opacity(1 - 0.55 * performance.dimming(at: now))
+                Self.draw(pose, in: &context, size: size, colour: lit, style: style, hearing: Double(hearing()))
             }
         }
         .accessibilityLabel("Companion's face, \(performance.mood.rawValue)")

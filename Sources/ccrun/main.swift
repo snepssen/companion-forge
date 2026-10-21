@@ -101,7 +101,7 @@ func faces(into folder: URL) throws {
         guard CGImageDestinationFinalize(destination) else { return }
         print("  \(folder.appending(path: "\(name).png").path)")
     }
-    for mood in [Mood.idle, .listening, .thinking, .speaking, .cheerful, .surprised, .waking] {
+    for mood in [Mood.idle, .listening, .thinking, .speaking, .cheerful, .surprised, .waking, .sleepy] {
         var performance = FacePerformance(origin: 0)
         performance.set(mood, at: 0)
         try write("mood-\(mood.rawValue)", performance.pose(at: 2))

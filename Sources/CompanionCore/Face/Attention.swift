@@ -97,7 +97,7 @@ public struct Attention: Sendable {
         case .listening: 1
         case .speaking, .cheerful: 0.7
         case .idle: 0.6
-        case .thinking: 0.2
+        case .thinking, .sleepy: 0.2
         case .surprised, .waking: 0
         }
     }

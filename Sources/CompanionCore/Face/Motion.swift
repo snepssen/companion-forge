@@ -18,6 +18,7 @@ public struct Gaze: Sendable {
         case .speaking, .cheerful: (.zero, 0.35)
         case .surprised: (.zero, 0)
         case .waking: (Point(0, 0.6), 0.25)
+        case .sleepy: (Point(0, 0.5), 0.1)
         }
     }
 

@@ -245,6 +245,8 @@ public enum Mood: String, Sendable {
     case cheerful
     /// Still loading its models: half asleep.
     case waking
+    /// Late at night with nobody talking: drowsy, visor dimmed.
+    case sleepy
 
     public var expression: Expression {
         switch self {
@@ -254,7 +256,7 @@ public enum Mood: String, Sendable {
         case .speaking: .visor
         case .surprised: .wide
         case .cheerful: .happy
-        case .waking: .sleepy
+        case .waking, .sleepy: .sleepy
         }
     }
 
@@ -292,6 +294,7 @@ public struct FacePerformance: Sendable {
     static let idleBlend = 0.4
 
     public private(set) var mood = Mood.idle
+    private var previous = Mood.idle
     private var from = Mood.idle.expression.face
     private var fromAim = Gaze.aim(.idle)
     private var changed = -1e9
@@ -308,6 +311,7 @@ public struct FacePerformance: Sendable {
         guard mood != self.mood else { return }
         from = resting(at: time)
         fromAim = aim(at: time)
+        previous = self.mood
         self.mood = mood
         changed = time
     }
@@ -341,6 +345,13 @@ public struct FacePerformance: Sendable {
 
     func resting(at time: Double) -> Face {
         from.blended(mood.expression.face, moodBlend(at: time))
+    }
+
+    /// How dimmed the visor is, 0 to 1: all the way while it's drowsy,
+    /// easing in and out with the mood.
+    public func dimming(at time: Double) -> Double {
+        let blend = moodBlend(at: time)
+        return (mood == .sleepy ? blend : 0) + (previous == .sleepy ? 1 - blend : 0)
     }
 
     func moodBlend(at time: Double) -> Double { Visemes.smoothstep(min(1, max(0, (time - changed) / Self.moodBlend))) }

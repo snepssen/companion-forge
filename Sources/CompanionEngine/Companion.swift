@@ -270,7 +270,13 @@ public final class Companion {
             idleWatch = Task { [weak self] in
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(15))
-                    guard let self, Duplex.now - self.lastActivity > Self.quietEnough else { continue }
+                    guard let self else { continue }
+                    // Late, and quiet a while: it nods off. Any voice wakes it.
+                    if self.phase == .live, self.face.mood == .idle, Clock.isNight(),
+                       Duplex.now - self.lastActivity > Clock.nodsOff {
+                        self.face.set(.sleepy, at: Duplex.now)
+                    }
+                    guard Duplex.now - self.lastActivity > Self.quietEnough else { continue }
                     self.writeUp()
                 }
             }

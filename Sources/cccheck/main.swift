@@ -626,6 +626,20 @@ let older = #"{"notes":[],"written":{"a":3}}"#
 check("memory saved before the journal still loads",
       (try? JSONDecoder().decode(MemoryStore.self, from: Data(older.utf8)))?.next(in: "a") == 3)
 
+// MARK: night
+
+check("eleven at night until six is night", Clock.isNight(utc.date(from: DateComponents(year: 2026, month: 10, day: 21, hour: 23, minute: 30))!, calendar: utc)
+    && Clock.isNight(utc.date(from: DateComponents(year: 2026, month: 10, day: 22, hour: 5))!, calendar: utc)
+    && !Clock.isNight(utc.date(from: DateComponents(year: 2026, month: 10, day: 22, hour: 7))!, calendar: utc))
+var drowsy = FacePerformance(origin: 0)
+check("awake, the visor is bright", drowsy.dimming(at: 1) == 0)
+drowsy.set(.sleepy, at: 10)
+check("nodding off, it dims", drowsy.dimming(at: 10.1) > 0 && drowsy.dimming(at: 10.1) < 1 && drowsy.dimming(at: 11) == 1)
+drowsy.set(.listening, at: 20)
+check("and a voice brightens it again", drowsy.dimming(at: 20.1) > 0 && drowsy.dimming(at: 21) == 0)
+check("eyes half shut and looking down", drowsy.pose(at: 30).face.eye.openness >= 0
+    && Mood.sleepy.expression == .sleepy)
+
 // MARK: weeks
 
 var mondays = utc
