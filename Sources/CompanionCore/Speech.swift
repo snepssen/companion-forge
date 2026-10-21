@@ -294,3 +294,19 @@ public enum Manners {
         return patterns.contains { lower.range(of: $0, options: .regularExpression) != nil }
     }
 }
+
+/// How a sentence is meant: what the voice's reading is tuned to.
+public enum Delivery: String, Sendable {
+    case statement, question, exclamation
+
+    /// By its last mark: "?" asks, "!" exclaims, anything else states.
+    public static func of(_ sentence: String) -> Delivery {
+        let trimmed = sentence.trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\"'”’)»"))
+        switch trimmed.last {
+        case "?": return .question
+        case "!": return .exclamation
+        default: return .statement
+        }
+    }
+}

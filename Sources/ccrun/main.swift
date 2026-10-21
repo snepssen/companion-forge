@@ -18,6 +18,7 @@
 //   ccrun --spatial-check       the spatial voice's audio graph, run silently
 //   ccrun --lipsync "text"      the mouth from the voice's phoneme timings, beside the spelling estimate
 //   ccrun --say "text" [--hint ro]  out loud, each part in its language
+//   ccrun --intonation "words" [--quiet]  as statement, question and exclamation: pitch measured, then heard
 //   ccrun --recall              how the embedder ranks notes, for the thresholds
 //   ccrun --long [--anticipate] a long conversation: prompt re-reading and first-word times
 //   ccrun --ask "a | b"         each said to it on its own, and its answer
@@ -460,6 +461,61 @@ func sayAloud(_ text: String, hint: String?) async throws {
     let blurt = try Blurt(samples, rate: voice.sampleRate, spatial: false)
     try await Task.sleep(for: .seconds(blurt.end - Duplex.now + 0.2))
     blurt.stop()
+}
+
+/// Pitch per 10 ms frame, by autocorrelation, voiced frames only (Hz; 0 unvoiced).
+func pitchTrack(_ samples: [Float], rate: Double) -> [Double] {
+    let frame = Int(rate * 0.04), hop = Int(rate * 0.01)
+    let (low, high) = (Int(rate / 400), Int(rate / 70))
+    var out: [Double] = []
+    var start = 0
+    while start + frame + high < samples.count {
+        let window = Array(samples[start..<(start + frame + high)])
+        let energy = window[0..<frame].reduce(0) { $0 + Double($1 * $1) }
+        var best = (lag: 0, value: 0.0)
+        if energy / Double(frame) > 1e-4 {
+            for lag in low...high {
+                var sum = 0.0
+                for i in 0..<frame { sum += Double(window[i] * window[i + lag]) }
+                let normalised = sum / energy
+                if normalised > best.value { best = (lag, normalised) }
+            }
+        }
+        out.append(best.value > 0.55 ? rate / Double(best.lag) : 0)
+        start += hop
+    }
+    return out
+}
+
+/// The same words as a statement, a question and an exclamation: how the
+/// pitch range and the sentence's ending differ, then out loud.
+func intonation(_ words: String) async throws {
+    guard let voiceURL = Resources.voice, let espeak = Resources.espeakData else { print("no voice"); return }
+    let voice = try Voice(model: voiceURL, espeakData: espeak)
+    let base = words.trimmingCharacters(in: CharacterSet(charactersIn: ".?! "))
+    for text in [base + ".", base + "?", base + "!"] {
+        let (samples, _) = try voice.speakTimed(text)
+        let voiced = pitchTrack(samples, rate: voice.sampleRate).filter { $0 > 0 }
+        guard voiced.count > 10 else { print("\(text): too little voiced speech"); continue }
+        let sorted = voiced.sorted()
+        let range = 12 * log2(sorted[Int(Double(sorted.count) * 0.95)] / sorted[Int(Double(sorted.count) * 0.05)])
+        let split = Int(Double(voiced.count) * 0.7)
+        func median(_ values: ArraySlice<Double>) -> Double { values.sorted()[values.count / 2] }
+        let ending = 12 * log2(median(voiced[split...]) / median(voiced[..<split]))
+        print(String(format: "%-40@ range %4.1f semitones, ending %+5.1f semitones, %.2f s", text as NSString, range, ending,
+                     Double(samples.count) / voice.sampleRate))
+        fflush(stdout)
+        if !CommandLine.arguments.contains("--quiet") {
+            let blurt = try Blurt(samples, rate: voice.sampleRate, spatial: false)
+            try await Task.sleep(for: .seconds(blurt.end - Duplex.now + 0.4))
+            blurt.stop()
+        }
+    }
+}
+
+if let words = option("--intonation") {
+    try await intonation(words)
+    exit(0)
 }
 
 if let text = option("--say") {

@@ -29,11 +29,15 @@ public final class Voice: @unchecked Sendable {
     private var phonemizers: [String: EspeakPhonemizer] = [:]
     private var speaking = "en"
     private let lock = NSLock()  // one ONNX run and one espeak call at a time
+    /// English with voice-forge's reading and lift, where its voice is here.
+    private let expressive: ExpressiveVoice?
 
     public init(model: URL, espeakData: URL) throws {
         self.model = try PiperModel(model: model)
         self.espeakData = espeakData
         sampleRate = self.model.sampleRate
+        let expressive = ExpressiveVoice()
+        self.expressive = expressive?.sampleRate == sampleRate ? expressive : nil
         _ = try phonemizer(self.model.config.espeak.voice)
     }
 
@@ -74,8 +78,13 @@ public final class Voice: @unchecked Sendable {
         let parts = isPolyglot ? self.parts(text, hint: hint) : [(text, "en")]
         var samples: [Float] = []
         var mouth: [VisemeSpan]? = []
-        for (part, language) in parts {
-            let (said, shapes) = try infer(part, language: language, pace: pace)
+        for (index, (part, language)) in parts.enumerated() {
+            // English through voice-forge's reading: the sentence's own kind for
+            // the part it ends with, a plain reading for the parts before.
+            let delivery = index == parts.count - 1 ? Delivery.of(text) : .statement
+            let (said, shapes) = language == "en" && pace == 1 && expressive != nil
+                ? try expressive!.render(part, delivery: delivery)
+                : try infer(part, language: language, pace: pace)
             let offset = Double(samples.count) / sampleRate
             mouth = shapes.flatMap { shapes in mouth.map { $0 + shapes.map { VisemeSpan($0.start + offset, $0.end + offset, $0.viseme) } } }
             samples += said

@@ -142,6 +142,10 @@ check("markdown and emoji are not said", Speakable.clean("**Hello** there 😀 f
 check("nor list markers", Speakable.clean("- first thing") == "first thing")
 check("numbers are", Speakable.clean("It's 3 # 4") == "It's 3 # 4")
 
+check("a question, an exclamation, a statement", Delivery.of("How was the walk?") == .question
+    && Delivery.of("Beep! You booped me!") == .exclamation && Delivery.of("That sounds nice.") == .statement
+    && Delivery.of("Is it “micul dejun”?") == .question && Delivery.of("It's “reggeli”!”") == .exclamation)
+
 // MARK: echo
 
 check("its own words back are echo", Echo.isEcho(heard: "how are you", saying: "How are you today? I hope well."))

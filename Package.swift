@@ -18,6 +18,10 @@ let package = Package(
         .package(url: "https://github.com/huggingface/swift-huggingface", exact: "1.0.0"),
         .package(url: "https://github.com/microsoft/onnxruntime-swift-package-manager", from: "1.20.0"),
         .package(url: "https://github.com/snepssen/voice-core", from: "1.0.3"),
+        // voice-forge's engine: its automatic reading and its lift, the one
+        // intonation control the voice answers to natively. Beside this
+        // checkout until it is tagged with its library products.
+        .package(path: "../voice-forge/macos"),
     ],
     targets: [
         // Everything decided without a model: when a turn has ended, what the
@@ -34,6 +38,8 @@ let package = Package(
         .target(name: "CompanionEngine", dependencies: [
             "CompanionCore", "ObjCExceptions",
             .product(name: "VoiceCore", package: "voice-core"),
+            .product(name: "VoiceForgeTTS", package: "macos"),
+            .product(name: "VoiceForgeCore", package: "macos"),
             .product(name: "FluidAudio", package: "FluidAudio"),
             .product(name: "MLXLLM", package: "mlx-swift-lm"),
             .product(name: "MLXLMCommon", package: "mlx-swift-lm"),
