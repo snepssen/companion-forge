@@ -29,6 +29,7 @@
 // Built with build.sh's xcodebuild (MLX needs its Metal library beside it):
 //   .build/xcode/Build/Products/Release/ccrun
 import CompanionCore
+import CryptoKit
 import CompanionEngine
 import CompanionUI
 import Foundation
@@ -731,6 +732,39 @@ if let text = option("--ask") {
 
 if CommandLine.arguments.contains("--long") {
     try await longRun()
+    exit(0)
+}
+
+// ccrun --seal-check: a copy of the real memory and logs sealed with a
+// throwaway key, as the app will on its first run with sealing: nothing lost,
+// nothing left in the clear, and it all opens again.
+if CommandLine.arguments.contains("--seal-check") {
+    let copy = FileManager.default.temporaryDirectory.appending(path: "ccrun-seal-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: copy) }
+    try FileManager.default.createDirectory(at: copy, withIntermediateDirectories: true)
+    try FileManager.default.copyItem(at: Resources.support.appending(path: "Conversations"), to: copy.appending(path: "Conversations"))
+    try FileManager.default.copyItem(at: Resources.memory, to: copy.appending(path: "memory.json"))
+    let logs = { try FileManager.default.contentsOfDirectory(at: copy.appending(path: "Conversations"), includingPropertiesForKeys: nil)
+        .filter { $0.pathExtension == "jsonl" }.sorted { $0.lastPathComponent < $1.lastPathComponent } }
+    let before = try logs().map { try ConversationLog.read($0).count }
+    let embedder = try await Embedder.load()
+    let plain = Memory(file: copy.appending(path: "memory.json"), conversations: copy.appending(path: "Conversations"), embedder: embedder)
+    let (notes, diary, calendar) = await (plain.store.notes.count, plain.store.journal.count, plain.store.calendar.count)
+    let sealer = Sealer(key: SymmetricKey(size: .bits256))
+    let sealed = Memory(file: copy.appending(path: "memory.json"), conversations: copy.appending(path: "Conversations"),
+                        embedder: embedder, sealer: sealer)
+    let after = try logs().map { try ConversationLog.read($0, sealer: sealer).count }
+    let raw = try Data(contentsOf: copy.appending(path: "memory.json"))
+    let clear = try logs().contains { try String(contentsOf: $0, encoding: .utf8).contains("\"text\"") }
+        || String(decoding: raw, as: UTF8.self).contains("\"text\"")
+    let again = Memory(file: copy.appending(path: "memory.json"), conversations: copy.appending(path: "Conversations"),
+                       embedder: embedder, sealer: sealer)
+    let unkeyed = Memory(file: copy.appending(path: "memory.json"), conversations: copy.appending(path: "Conversations"),
+                         embedder: embedder)
+    print("notes \(notes), diary \(diary), calendar \(calendar); logs \(before) turns")
+    print("sealed: notes \(await sealed.store.notes.count), reopened \(await again.store.notes.count), locked \(await again.locked)")
+    print("logs after: \(after) turns; anything left in the clear: \(clear)")
+    print("without the key: locked \(await unkeyed.locked), notes \(await unkeyed.store.notes.count)")
     exit(0)
 }
 

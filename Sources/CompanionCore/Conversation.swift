@@ -35,7 +35,10 @@ public final class ConversationLog: @unchecked Sendable {
         return encoder
     }()
 
-    public init(directory: URL, started: Date = Date()) throws {
+    private let sealer: Sealer
+
+    public init(directory: URL, started: Date = Date(), sealer: Sealer = .plain) throws {
+        self.sealer = sealer
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let format = DateFormatter()
         format.locale = Locale(identifier: "en_US_POSIX")
@@ -47,7 +50,7 @@ public final class ConversationLog: @unchecked Sendable {
     /// Append a turn; returns its index in the session.
     @discardableResult
     public func append(_ turn: Turn) throws -> Int {
-        var line = try encoder.encode(turn)
+        var line = Data(try sealer.sealLine(try encoder.encode(turn)).utf8)
         line.append(0x0A)
         return try lock.withLock {
             if let handle = try? FileHandle(forWritingTo: file) {
@@ -62,11 +65,22 @@ public final class ConversationLog: @unchecked Sendable {
         }
     }
 
-    public static func read(_ file: URL) throws -> [Turn] {
+    public static func read(_ file: URL, sealer: Sealer = .plain) throws -> [Turn] {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try String(contentsOf: file, encoding: .utf8).split(separator: "\n")
-            .map { try decoder.decode(Turn.self, from: Data($0.utf8)) }
+            .map { try decoder.decode(Turn.self, from: try sealer.openLine($0)) }
+    }
+
+    /// Seal a log written before sealing, in place; a log already sealed is left.
+    public static func seal(_ file: URL, with sealer: Sealer) throws {
+        guard sealer.seals, let text = try? String(contentsOf: file, encoding: .utf8),
+              text.split(separator: "\n").contains(where: { !$0.hasPrefix(Sealer.lineMark) })
+        else { return }
+        let lines = try text.split(separator: "\n").map { line in
+            line.hasPrefix(Sealer.lineMark) ? String(line) : try sealer.sealLine(Data(line.utf8))
+        }
+        try Data((lines.joined(separator: "\n") + "\n").utf8).write(to: file, options: .atomic)
     }
 }
 

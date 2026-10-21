@@ -747,6 +747,38 @@ check("to fast music (167 a minute) it moves every other beat",
       abs((fast.beat(at: 10) ?? 0) - 0.36) < 0.02 && Dance.step(0.36) == 0.72 && Dance.step(0.5) == 0.5
         && fastKicks.count > 20)
 
+// MARK: sealing
+
+import CryptoKit
+let sealer = Sealer(key: SymmetricKey(size: .bits256))
+let secret = Data("Their mum's birthday is on 3 November.".utf8)
+check("sealed, it opens again, and doesn't show what it says",
+      (try? sealer.open(sealer.seal(secret))) == secret
+        && (try? sealer.seal(secret)).map { !String(decoding: $0, as: UTF8.self).contains("birthday") } == true)
+check("memory from before sealing still opens", (try? sealer.open(secret)) == secret)
+check("and the wrong key opens nothing", (try? Sealer(key: SymmetricKey(size: .bits256)).open(sealer.seal(secret))) == nil)
+let sealedFolder = FileManager.default.temporaryDirectory.appending(path: "cccheck-sealed-\(UUID().uuidString)")
+if let log = try? ConversationLog(directory: sealedFolder, sealer: sealer) {
+    _ = try? log.append(Turn(.person, "My mum's birthday is on 3 November."))
+    _ = try? log.append(Turn(.companion, "Noted!"))
+    let raw = (try? String(contentsOf: log.file, encoding: .utf8)) ?? ""
+    check("a sealed log keeps no words in the clear", !raw.contains("birthday") && raw.split(separator: "\n").count == 2)
+    check("and reads back with the key", (try? ConversationLog.read(log.file, sealer: sealer))?.first?.text
+        == "My mum's birthday is on 3 November.")
+    check("but not without", (try? ConversationLog.read(log.file)) == nil)
+    // A log from last week, written before there was sealing.
+    try? (try? ConversationLog(directory: sealedFolder, started: Date() - 7 * 86_400))?.append(Turn(.person, "I live in York."))
+    let plainLogs = ((try? FileManager.default.contentsOfDirectory(at: sealedFolder, includingPropertiesForKeys: nil)) ?? [])
+        .filter { $0.lastPathComponent != log.file.lastPathComponent }
+    for file in plainLogs { try? ConversationLog.seal(file, with: sealer) }
+    check("a log from before sealing is sealed in place, words and all",
+          plainLogs.count == 1 && (try? String(contentsOf: plainLogs[0], encoding: .utf8)).map { !$0.contains("York") } == true
+            && (try? ConversationLog.read(plainLogs[0], sealer: sealer))?.first?.text == "I live in York.")
+    try? FileManager.default.removeItem(at: sealedFolder)
+} else {
+    check("a sealed log opens", false)
+}
+
 // MARK: log
 
 let folder = FileManager.default.temporaryDirectory.appending(path: "cccheck-\(UUID().uuidString)")

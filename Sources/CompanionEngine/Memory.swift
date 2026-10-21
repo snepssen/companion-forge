@@ -8,14 +8,31 @@ public actor Memory {
     private let file: URL
     private let conversations: URL
     private let embedder: Embedder
+    private let sealer: Sealer
+    /// There's a memory it couldn't open (its key missing?): left exactly as
+    /// it is rather than written over with an empty one.
+    public private(set) var locked: Bool
 
-    public init(file: URL = Resources.memory, conversations: URL = Resources.conversations, embedder: Embedder) {
+    public init(file: URL = Resources.memory, conversations: URL = Resources.conversations, embedder: Embedder,
+                sealer: Sealer = .plain) {
         self.file = file
         self.conversations = conversations
         self.embedder = embedder
+        self.sealer = sealer
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        store = (try? decoder.decode(MemoryStore.self, from: Data(contentsOf: file))) ?? MemoryStore()
+        let saved = try? Data(contentsOf: file)
+        let opened = saved.flatMap { try? decoder.decode(MemoryStore.self, from: sealer.open($0)) }
+        locked = saved != nil && opened == nil
+        store = opened ?? MemoryStore()
+        guard !locked else { return }
+        // Logs from before sealing, sealed now.
+        for log in (try? FileManager.default.contentsOfDirectory(at: conversations, includingPropertiesForKeys: nil)) ?? []
+        where log.pathExtension == "jsonl" {
+            try? ConversationLog.seal(log, with: sealer)
+        }
+        // Memory from before sealing: written again, sealed.
+        if let saved, sealer.seals, !saved.starts(with: Data("CCSEAL".utf8)) { try? Self.write(store, to: file, sealer: sealer) }
         // Notes written before the companion learned to keep itself out of them.
         let loaded = store
         for note in store.notes where !Remembering.isAboutThem(note.text) { store.forget(note.id) }
@@ -26,7 +43,7 @@ public actor Memory {
             store.add(lasting)
         }
         store.dateCheckIns()
-        if store != loaded { try? Self.write(store, to: file) }
+        if store != loaded { try? Self.write(store, to: file, sealer: sealer) }
     }
 
     public var notes: [Note] { store.notes.sorted { $0.at > $1.at } }
@@ -53,7 +70,7 @@ public actor Memory {
 
     /// The turns a note was written from, a turn either side, at most eight.
     func turns(behind note: Note) -> [Turn] {
-        guard let all = try? ConversationLog.read(conversations.appending(path: "\(note.session).jsonl")) else { return [] }
+        guard let all = try? ConversationLog.read(conversations.appending(path: "\(note.session).jsonl"), sealer: sealer) else { return [] }
         let low = max(0, note.turns.lowerBound - 1)
         let high = min(all.count - 1, note.turns.upperBound + 1, low + 7)
         return low <= high ? Array(all[low...high]) : []
@@ -69,7 +86,7 @@ public actor Memory {
         var added = 0
         for log in logs {
             let session = log.deletingPathExtension().lastPathComponent
-            let turns = (try? ConversationLog.read(log)) ?? []
+            let turns = (try? ConversationLog.read(log, sealer: sealer)) ?? []
             var next = store.next(in: session)
             while turns.count - next >= Remembering.fewest {
                 try Task.checkCancellation()
@@ -166,6 +183,11 @@ public actor Memory {
     /// Every note, and every conversation they were written from.
     public func forgetEverything() throws {
         store.forgetAll()
+        // Even a memory it couldn't open goes when they ask for everything to.
+        if locked {
+            try? FileManager.default.removeItem(at: file)
+            locked = false
+        }
         try save()
         for log in (try? FileManager.default.contentsOfDirectory(at: conversations, includingPropertiesForKeys: nil)) ?? []
         where log.pathExtension == "jsonl" {
@@ -173,12 +195,20 @@ public actor Memory {
         }
     }
 
-    private func save() throws { try Self.write(store, to: file) }
+    private func save() throws {
+        guard !locked else { return }
+        try Self.write(store, to: file, sealer: sealer)
+    }
 
-    private static func write(_ store: MemoryStore, to file: URL) throws {
+    private static func write(_ store: MemoryStore, to file: URL, sealer: Sealer) throws {
         try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
-        try encoder.encode(store).write(to: file, options: .atomic)
+        #if os(iOS)
+        let options: Data.WritingOptions = [.atomic, .completeFileProtection]
+        #else
+        let options: Data.WritingOptions = .atomic
+        #endif
+        try sealer.seal(encoder.encode(store)).write(to: file, options: options)
     }
 }

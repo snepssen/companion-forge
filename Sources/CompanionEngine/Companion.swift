@@ -115,6 +115,8 @@ public final class Companion {
         return Dance.Pattern(rawValue: stored)
     }
 
+    /// What its memory and logs are sealed with.
+    private var sealer = Sealer.plain
     private var recognizer: Recognizer?
     private var brain: Brain?
     private var voice: Voice?
@@ -171,7 +173,14 @@ public final class Companion {
                     if progress < 1 { self?.phase = .loading("Downloading the memory's embedder… \(Int(progress * 100))%") }
                 }
             }
-            memory = Memory(embedder: embedder)
+            Vault.protect(Resources.support)
+            let (sealer, problem) = Vault.sealer()
+            self.sealer = sealer
+            memory = Memory(embedder: embedder, sealer: sealer)
+            if let problem { notice = problem }
+            if await memory?.locked == true {
+                notice = "Its memory is there but couldn't be opened, so it's left untouched and nothing new is saved."
+            }
             dictionary = Resources.dictionary.flatMap(Dictionary.init(file:))
             notes = await memory?.notes ?? []
             try await loadBrain()
@@ -250,7 +259,7 @@ public final class Companion {
             self.audio = audio
             beat.pattern = dance
             audio.buffer.listener = { [beat] block in beat.hear(block) }
-            let log = try? ConversationLog(directory: Resources.conversations)
+            let log = try? ConversationLog(directory: Resources.conversations, sealer: sealer)
             let (stream, continuation) = AsyncStream<LoopEvent>.makeStream()
             let loop = Loop(audio: audio, vad: try SileroVAD(model: vadURL), recognizer: recognizer, brain: brain,
                             voice: voice, memory: memory, attention: attention, dictionary: dictionary, log: log,
