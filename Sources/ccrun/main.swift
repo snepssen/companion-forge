@@ -23,7 +23,7 @@
 //   ccrun --wav "a | b" --out <folder> [--plain]  each line to a WAV (--plain: the polyglot voice for English too)
 //   ccrun --recall              how the embedder ranks notes, for the thresholds
 //   ccrun --long [--anticipate] a long conversation: prompt re-reading and first-word times
-//   ccrun --ask "a | b"         each said to it on its own, and its answer
+//   ccrun --ask "a | b" [--chat] each said to it on its own (--chat: as one conversation), and its answer
 //
 // Built with build.sh's xcodebuild (MLX needs its Metal library beside it):
 //   .build/xcode/Build/Products/Release/ccrun
@@ -615,10 +615,15 @@ func ask(_ lines: [String]) async throws {
     let brain = try await Brain(model: model, at: directory)
     if let personality = option("--personality").flatMap(Personality.init(rawValue:)) { await brain.set(personality) }
     let dictionary = CommandLine.arguments.contains("--no-dictionary") ? nil : Resources.dictionary.flatMap(Dictionary.init(file:))
+    // --chat: one conversation, each line following the last; otherwise each on its own.
+    let chat = CommandLine.arguments.contains("--chat")
+    var turns: [Turn] = []
     for line in lines {
         let found = dictionary?.aside(for: line)
         if let found { print("  dictionary: \(found)") }
-        let reply = try await brain.reply(to: [Turn(.person, line)], remembering: Recollection(aside: found)) { _ in }
+        turns = (chat ? turns : []) + [Turn(.person, line)]
+        let reply = try await brain.reply(to: turns, remembering: Recollection(aside: found)) { _ in }
+        turns.append(Turn(.companion, reply))
         print("you: \(line)\n  it: \(reply)")
     }
 }

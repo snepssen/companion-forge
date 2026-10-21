@@ -426,7 +426,7 @@ check("not every question is a lookup", Lookup.request(in: "What's the weather l
 
 check("a help desk's sign-offs are filler", ["Is there anything else you need help with?",
     "What would you like to discuss next?", "Let me know if you need anything.", "Does that help?",
-    "Would you like to know how to say anything else?"].allSatisfy(Manners.isFiller))
+    "Would you like to know how to say anything else?", "Let me know when you're ready."].allSatisfy(Manners.isFiller))
 check("real answers and real curiosity aren't", ["Breakfast in Polish is śniadanie.", "How was the walk?",
     "What did you have for breakfast?", "I am here."].allSatisfy { !Manners.isFiller($0) })
 check("and in Polish?", Lookup.followUp("and in Polish.") == "pl" && Lookup.followUp("What about in German?") == "de"
