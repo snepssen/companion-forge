@@ -25,6 +25,7 @@ public actor Memory {
             lasting.lasting = true
             store.add(lasting)
         }
+        store.dateCheckIns()
         if store != loaded { try? Self.write(store, to: file) }
     }
 
@@ -79,8 +80,9 @@ public actor Memory {
                 let written = Remembering.parse(answer, turns: next...(end - 1))
                 let vectors = await embedder.embed(written.map(\.text))
                 for (note, vector) in zip(written, vectors) {
-                    store.add(Note(text: note.text, session: session, turns: note.turns,
-                                   at: turns[note.turns.upperBound].at, lasting: note.lasting, vector: vector))
+                    let at = turns[note.turns.upperBound].at
+                    store.add(Note(text: note.text, session: session, turns: note.turns, at: at,
+                                   lasting: note.lasting, vector: vector, due: CheckIn.due(note.text, said: at)))
                 }
                 added += written.count
                 store.wrote(session, through: end)
@@ -107,6 +109,15 @@ public actor Memory {
     public func closest(to what: String) async -> Note? {
         let vector = await embedder.embed([what], query: true)[0]
         return store.recall(what, vector: vector, limit: 1, lasting: true).first?.note
+    }
+
+    /// Something to catch up on now, if anything has fallen due.
+    public func checkIn(now: Date = Date()) -> Note? { CheckIn.pick(store.notes, now: now) }
+
+    /// It asked them about note `id`: not again.
+    public func checkedIn(_ id: String, at date: Date = Date()) {
+        store.checked(id, at: date)
+        try? save()
     }
 
     public func forget(_ id: String) throws {

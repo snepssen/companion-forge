@@ -617,14 +617,25 @@ func ask(_ lines: [String]) async throws {
     let dictionary = CommandLine.arguments.contains("--no-dictionary") ? nil : Resources.dictionary.flatMap(Dictionary.init(file:))
     // --chat: one conversation, each line following the last; otherwise each on its own.
     let chat = CommandLine.arguments.contains("--chat")
+    var checkIn = option("--check-in").map {
+        Note(text: $0, session: "earlier", turns: 0...0, at: Date().addingTimeInterval(-3 * 86_400), lasting: false, vector: [])
+    }
     var turns: [Turn] = []
     for line in lines {
         let found = dictionary?.aside(for: line)
         if let found { print("  dictionary: \(found)") }
         turns = (chat ? turns : []) + [Turn(.person, line)]
-        let reply = try await brain.reply(to: turns, remembering: Recollection(aside: found)) { _ in }
+        var recollection = Recollection(aside: found)
+        // --check-in "<note>": told three days ago, offered from their second line on until asked.
+        if let checkIn, turns.count >= 3 { recollection.checkIn = checkIn }
+        let reply = try await brain.reply(to: turns, remembering: recollection) { _ in }
         turns.append(Turn(.companion, reply))
         print("you: \(line)\n  it: \(reply)")
+        if let offered = recollection.checkIn {
+            let asked = CheckIn.asked(reply, about: offered)
+            print("     (offered the check-in\(asked ? "; asked" : ""))")
+            if asked { checkIn = nil }
+        }
     }
 }
 

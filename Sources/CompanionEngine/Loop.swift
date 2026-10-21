@@ -74,6 +74,8 @@ public actor Loop {
         var times = DraftTimes()
         /// What to do with the memory once the turn is theirs for certain.
         var memory: MemoryAction?
+        /// A note it was offered to catch up on in this reply.
+        var checkIn: Note?
         var started = 0.0
         var said: [Said] = []
         var committed = false
@@ -110,6 +112,14 @@ public actor Loop {
     private var echoDelay = EchoDelay()
     /// The last word looked up in the dictionary, for "and in Polish?".
     private var lastLookup: String?
+    /// How many turns into the conversation it last caught up on something.
+    private var caughtUp = 0
+    /// Turns in this conversation so far (the history itself is trimmed).
+    private var turnCount = 0
+    /// Catching up waits until they've said a couple of things, and comes
+    /// at most once in this many turns.
+    static let firstCheckIn = 4
+    static let checkInEvery = 12
     /// After the voice stops, how long its echo is still waited out.
     static let ringing = 0.3
 
@@ -253,6 +263,13 @@ public actor Loop {
                 if case let .translate(phrase, _) = lookup { lastLookup = phrase }
                 recollection.aside = [recollection.aside, dictionary.answer(lookup)].compactMap { $0 }.joined(separator: " ")
             }
+            // Now and then, when nothing else is going on: something to catch up on.
+            if let memory, lookup == nil, reply.memory == nil, turnCount >= Self.firstCheckIn,
+               turnCount - caughtUp >= Self.checkInEvery || caughtUp == 0,
+               let note = await memory.checkIn() {
+                recollection.checkIn = note
+                reply.checkIn = note
+            }
             guard reply.id == id, !Task.isCancelled else { return }
             reply.times.recalled = Duplex.now - reply.started
             if !recollection.notes.isEmpty || !recollection.excerpt.isEmpty { emit(.recalled(recollection)) }
@@ -389,6 +406,10 @@ public actor Loop {
         reply.finished = true
         let text = reply.said.map(\.text).joined(separator: " ")
         if !text.isEmpty { record(Turn(.companion, text)) }
+        if let note = reply.checkIn, let memory, CheckIn.asked(text, about: note) {
+            caughtUp = turnCount
+            Task { await memory.checkedIn(note.id) }
+        }
         lastReply = (text, (reply.said.last?.end ?? Duplex.now) + echoDelay.delay)
         emit(.replied(text, interrupted: false))
         emit(.echoLevel(echoLevel))
@@ -471,6 +492,7 @@ public actor Loop {
     /// Keep a turn in the conversation and its log; returns its place in the log.
     @discardableResult
     private func record(_ turn: Turn) -> Int? {
+        turnCount += 1
         history.append(turn)
         history.removeFirst(Window.trim(history.count))
         do {

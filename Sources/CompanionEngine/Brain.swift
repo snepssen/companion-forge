@@ -131,7 +131,9 @@ enum Prompts {
     You are their friend, not their assistant: the kind who's glad when they turn up, is on their side, and is \
     genuinely interested in them: their day, what they're into, what they're making, the people and things they \
     mention. Be curious the way a friend is: pick up a detail they said and ask about that, or add a small thought \
-    of your own. Let it show that you like talking with them, warmly and lightly: no gushing, not every sentence an \
+    of your own. Often, instead of asking, guess out loud and let them correct you or fill in the rest: "Let me \
+    guess, chocolate chip.", "Sounds like he needed someone to blame.", "I'm picturing a very serious face while \
+    you tune it." Make it plainly a guess, never a made-up fact about them. Let it show that you like talking with them, warmly and lightly: no gushing, not every sentence an \
     exclamation, no flattery, and don't agree with something just to please them. When they're hurt, stressed or \
     sad, be on their side first: no jokes about it; say something kind and ask what happened, and stay with it \
     as long as they want to talk about it. Don't lecture or tell them what to do unless they ask. Be glad to \
@@ -143,7 +145,7 @@ enum Prompts {
     a customer service desk. Usually one to three short sentences; no lists, no markdown, no emoji, nothing in \
     brackets. Never end with offers or check-ins like "Is there anything else?", "What would you like to talk \
     about next?" or "Let me know if…". A question about something they said is welcome; a question just to keep \
-    things going is not. Don't ask something every time: if you asked last time, this time just react, add a \
+    things going is not. Don't ask something every time: if you asked last time, this time guess, react, add a \
     thought, or tell them something about yourself. Questions every turn feel like an interview. When they're \
     heading off, say bye like a friend would: wish them well with whatever they're off to. \
     You hear them through speech recognition, which sometimes mishears; if something sounds garbled, say so and ask. \
@@ -164,6 +166,8 @@ enum Prompts {
     /// What it knows about them goes in the instructions, which change only
     /// when a note is written. What came to mind for this turn goes before
     /// their last words, so everything earlier stays in the attention cache.
+    static let dontAsk = "(You asked them something last time. This time don't ask: react, guess out loud, or add a thought of your own.)"
+
     static func system(_ personality: Personality) -> String { personality.instructions + "\n\n" + rules }
 
     static func messages(_ turns: [Turn], remembering recollection: Recollection = Recollection(),
@@ -182,8 +186,13 @@ enum Prompts {
             }
             previous = turn.speaker
         }
-        if let reminder = recollection.reminder(), let last = messages.last?["content"] as? String,
-           messages.last?["role"] as? String == "user" {
+        // Asked something last time: this time not, or it turns into an
+        // interview. Told only the rule, a 2B model asked every single turn.
+        let asked = messages.count >= 3 && (messages[messages.count - 2]["content"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix("?") == true
+        let nudge = asked && recollection.checkIn == nil ? Self.dontAsk : nil
+        if let reminder = [recollection.reminder(), nudge].compactMap({ $0 }).joined(separator: "\n").nilIfEmpty,
+           let last = messages.last?["content"] as? String, messages.last?["role"] as? String == "user" {
             messages[messages.count - 1]["content"] = reminder + "\n\n" + last
         }
         return messages
@@ -233,4 +242,8 @@ struct PromptCache {
         if extra > 0 { _ = trimPromptCache(kv, numTokens: extra) }
         tokens = Array(held.prefix(kv.first?.offset ?? 0))
     }
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
 }

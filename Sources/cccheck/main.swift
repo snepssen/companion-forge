@@ -507,6 +507,49 @@ var busy = TurnTaker()
 _ = busy.tick(at: 0.1, speech: true, probability: 0.9)
 check("but not over somebody", !busy.speakUnprompted(at: 0.2))
 
+// MARK: catching up
+
+let utc: Calendar = {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(identifier: "UTC")!
+    return calendar
+}()
+let wednesday = utc.date(from: DateComponents(year: 2026, month: 10, day: 21, hour: 10))!
+func dueDay(_ text: String) -> String? {
+    CheckIn.due(text, said: wednesday, calendar: utc).map { date in
+        let c = utc.dateComponents([.month, .day, .hour], from: date)
+        return "\(c.month!)-\(c.day!) \(c.hour!)h"
+    }
+}
+check("an interview on Friday is asked about Friday evening", dueDay("They have a job interview on Friday.") == "10-23 17h")
+check("Sam coming over tonight, the next morning", dueDay("Their friend Sam is coming over tonight to watch a movie.") == "10-22 8h")
+check("a visit next week, in a week", dueDay("Their sister is visiting next week.") == "10-28 17h")
+check("the weekend, on the Monday after", dueDay("They are going camping this weekend.") == "10-26 8h")
+check("guitar just started, a few days on", dueDay("They started learning guitar last week.") == "10-25 17h")
+check("an exam with no day, a couple of days on", dueDay("They have a maths exam coming up.") == "10-23 17h")
+check("in two weeks", dueDay("They are flying to Lisbon in two weeks.") == "11-4 17h")
+check("nothing with no time to it", dueDay("They like blueberry pancakes.") == nil && dueDay("Their name is Tom.") == nil)
+check("nor something that's already happened", dueDay("Their interview went well.") == nil
+    && dueDay("They had a rough meeting with their boss today.") == nil)
+
+func note(_ text: String, due: Date?, checked: Date? = nil) -> Note {
+    Note(text: text, session: "s", turns: 0...0, at: wednesday, lasting: false, vector: [], due: due, checked: checked)
+}
+let friday = utc.date(from: DateComponents(year: 2026, month: 10, day: 23, hour: 17))!
+let sunday = utc.date(from: DateComponents(year: 2026, month: 10, day: 25, hour: 12))!
+let interview = note("They have a job interview on Friday.", due: friday)
+let guitar = note("They started learning guitar.", due: utc.date(byAdding: .day, value: 4, to: wednesday))
+let pending = [interview, guitar, note("They like tea.", due: nil),
+               note("Their sister is visiting next week.", due: utc.date(byAdding: .day, value: 7, to: wednesday))]
+check("nothing to catch up on before it has happened", CheckIn.pick(pending, now: wednesday) == nil)
+check("then the one that fell due first", CheckIn.pick(pending, now: sunday)?.id == interview.id)
+check("not once asked", CheckIn.pick([note(interview.text, due: friday, checked: sunday)], now: sunday) == nil)
+check("and not once it's old news", CheckIn.pick([interview], now: friday.addingTimeInterval(30 * 86_400)) == nil)
+check("asking how the interview went counts", CheckIn.asked("Oh, by the way, how did the interview go?", about: interview))
+check("so does hoping it went well", CheckIn.asked("Nice. I hope the interview went smoothly.", about: interview))
+check("a question about something else doesn't", !CheckIn.asked("What kind of pancakes?", about: interview))
+check("it goes before their words", Recollection(checkIn: interview).reminder(now: sunday)?.contains("job interview") == true)
+
 // MARK: dance
 
 // Music at 120 beats a minute: a kick each beat (a 55 Hz thump, falling

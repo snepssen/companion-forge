@@ -20,9 +20,13 @@ public struct Note: Codable, Identifiable, Equatable, Sendable {
     public var lasting: Bool
     /// Its meaning, as the embedding model has it; unit length.
     public var vector: [Float]
+    /// When it becomes worth asking how it went (`CheckIn`), if it ever does.
+    public var due: Date?
+    /// When it was asked about.
+    public var checked: Date?
 
     public init(id: String = UUID().uuidString, text: String, session: String, turns: ClosedRange<Int>, at: Date,
-                lasting: Bool, vector: [Float]) {
+                lasting: Bool, vector: [Float], due: Date? = nil, checked: Date? = nil) {
         self.id = id
         self.text = text
         self.session = session
@@ -30,6 +34,8 @@ public struct Note: Codable, Identifiable, Equatable, Sendable {
         self.at = at
         self.lasting = lasting
         self.vector = vector
+        self.due = due
+        self.checked = checked
     }
 }
 
@@ -78,6 +84,18 @@ public struct MemoryStore: Codable, Sendable, Equatable {
     public func next(in session: String) -> Int { written[session] ?? 0 }
 
     public mutating func forget(_ id: String) { notes.removeAll { $0.id == id } }
+
+    /// It asked them about note `id`.
+    public mutating func checked(_ id: String, at date: Date = Date()) {
+        if let i = notes.firstIndex(where: { $0.id == id }) { notes[i].checked = date }
+    }
+
+    /// Notes from before check-ins, given their due dates.
+    public mutating func dateCheckIns() {
+        for i in notes.indices where notes[i].due == nil && notes[i].checked == nil {
+            notes[i].due = CheckIn.due(notes[i].text, said: notes[i].at)
+        }
+    }
 
     public mutating func forgetAll() {
         notes = []
@@ -154,15 +172,19 @@ public struct Recollection: Sendable, Equatable {
     public var excerpt: [Turn]
     /// What was done with the memory just now, at their asking.
     public var aside: String?
+    /// Something to ask them how it went, if it fits.
+    public var checkIn: Note?
 
-    public init(profile: [Note] = [], notes: [Note] = [], excerpt: [Turn] = [], aside: String? = nil) {
+    public init(profile: [Note] = [], notes: [Note] = [], excerpt: [Turn] = [], aside: String? = nil,
+                checkIn: Note? = nil) {
         self.profile = profile
         self.notes = notes
         self.excerpt = excerpt
         self.aside = aside
+        self.checkIn = checkIn
     }
 
-    public var isEmpty: Bool { profile.isEmpty && notes.isEmpty && excerpt.isEmpty && aside == nil }
+    public var isEmpty: Bool { profile.isEmpty && notes.isEmpty && excerpt.isEmpty && aside == nil && checkIn == nil }
 
     /// For the instructions: what it knows about them.
     public var knowing: String? {
@@ -173,9 +195,10 @@ public struct Recollection: Sendable, Equatable {
 
     /// Put before what they just said: what came to mind.
     public func reminder(now: Date = Date()) -> String? {
-        guard !notes.isEmpty || !excerpt.isEmpty || aside != nil else { return nil }
+        guard !notes.isEmpty || !excerpt.isEmpty || aside != nil || checkIn != nil else { return nil }
         var lines: [String] = []
         if let aside { lines.append("(\(aside))") }
+        if let checkIn { lines.append(CheckIn.prompt(checkIn, now: now)) }
         guard !notes.isEmpty || !excerpt.isEmpty else { return lines.joined(separator: "\n") }
         lines.append("(This came to mind from earlier conversations. Use it if it helps; don't recite it.)")
         lines += notes.map { "- \(Remembering.when($0.at, now: now)): \($0.text)" }
@@ -203,13 +226,15 @@ public enum Remembering {
     - [8] Their sister is visiting next week.
     - [11] They work in a bakery.
     - [14] They call you Pip.
-    Notes are about them, never about you, and never something you said that they didn't. Begin every note \
+    Notes are about them, never about you, and never something you said that they didn't: when you guessed \
+    ("Let me guess, chocolate chip?"), only what they answered counts. Begin every note \
     with "They" or "Their". The one thing to note about you is what they call you, as "They call you …". \
     Worth remembering: their name, facts about them and the people \
     and pets in their life, what they like and dislike, plans and promises, things that happened to them, how \
     they felt about something that mattered, anything they asked you to remember. Not worth it: greetings, \
     small talk, general questions, what they asked you to do, anything you offered, claimed, found or \
-    suggested, anything you already know. If they say their name, always note it. Write at most eight \
+    suggested, anything you already know (but do note how something you knew about turned out, or what has \
+    changed: "Their interview went well."). If they say their name, always note it. Write at most eight \
     notes, only from what they said. If nothing is worth remembering, write only: NONE
     """
 

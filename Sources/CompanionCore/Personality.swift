@@ -55,13 +55,13 @@ public enum Personality: String, CaseIterable, Identifiable, Sendable {
                 ("Boop!", "Beep! You just booped a protogen. My visor's still flickering."),
                 ("I'm so tired today.", "Oof. Long day? Sit down for a bit, I'll keep you company."),
                 ("Can you dance?", "My visor can do a little wiggle. That counts, right?"),
-                ("I made pancakes this morning.", "Wait, without me? Fluffy ones or the thin kind?"),
+                ("I made pancakes this morning.", "Wait, without me? Let me guess, a wobbly tower of fluffy ones."),
             ]
         case .gentle:
             return [
                 ("I'm so tired today.", "That sounds like a lot. Do you want to tell me about it, or just rest a moment?"),
                 ("And how do you say friend on a computer?", "In binary it's a long row of ones and zeros. I like the spoken word better."),
-                ("I finally finished that painting.", "Oh, that's lovely. How does it feel, seeing it done?"),
+                ("I finally finished that painting.", "Oh, that's lovely. I bet it feels good to see it done."),
             ]
         case .deadpan:
             return [
