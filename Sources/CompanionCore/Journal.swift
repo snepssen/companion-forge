@@ -18,9 +18,13 @@ public struct JournalEntry: Codable, Identifiable, Equatable, Sendable {
     public var turns: ClosedRange<Int>
     public var text: String
     public var vector: [Float]
+    /// Who was talking (`Voice.id`s); nil: the owner, from before there were
+    /// voices. (Optional so diaries saved before still load.)
+    public var who: [String]?
 
     public init(id: String = UUID().uuidString, at: Date, session: String, turns: ClosedRange<Int>, text: String,
-                vector: [Float]) {
+                vector: [Float], who: [String]? = nil) {
+        self.who = who
         self.id = id
         self.at = at
         self.session = session
@@ -40,9 +44,12 @@ public struct Happening: Codable, Identifiable, Equatable, Sendable {
     public var journal: String?
     /// When it last reminded them it was coming.
     public var reminded: Date?
+    /// Whose it is (`Voice.id`); nil: the owner's.
+    public var about: String?
 
     public init(id: String = UUID().uuidString, text: String, when: When, note: String? = nil, journal: String? = nil,
-                reminded: Date? = nil) {
+                reminded: Date? = nil, about: String? = nil) {
+        self.about = about
         self.id = id
         self.text = text
         self.when = when

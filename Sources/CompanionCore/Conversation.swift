@@ -9,12 +9,15 @@ public struct Turn: Codable, Equatable, Sendable {
     public var at: Date
     /// A reply cut off part way: `text` is only what was said before it stopped.
     public var interrupted: Bool
+    /// Whose voice it was (`Voice.id`), when it could tell.
+    public var who: String?
 
-    public init(_ speaker: Speaker, _ text: String, at: Date = Date(), interrupted: Bool = false) {
+    public init(_ speaker: Speaker, _ text: String, at: Date = Date(), interrupted: Bool = false, who: String? = nil) {
         self.speaker = speaker
         self.text = text
         self.at = at
         self.interrupted = interrupted
+        self.who = who
     }
 }
 

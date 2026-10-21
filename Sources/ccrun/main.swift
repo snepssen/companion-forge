@@ -15,6 +15,7 @@
 //   ccrun --window <file.png>   the app's window, loaded as the app loads it
 //   ccrun --memory              earlier conversations written up, then recalled
 //   ccrun --journal             a conversation written up into notes, diary and calendar, then asked about
+//   ccrun --speakers <folder>   how well each voiceprint model tells voices apart (<voice>__<n>.wav)
 //   ccrun --weeks               three weeks of conversations into diary and week summaries, then asked about
 //   ccrun --icon <file.png>     the app icon, 1024 px
 //   ccrun --spatial-check       the spatial voice's audio graph, run silently
@@ -819,6 +820,102 @@ if CommandLine.arguments.contains("--seal-check") {
     exit(0)
 }
 
+// ccrun --speakers <folder>: WAVs named <voice>__<n>.wav (16 kHz mono), each
+// voice saying several things; how well each voiceprint model tells them apart.
+if let folder = option("--speakers") {
+    let files = try FileManager.default.contentsOfDirectory(at: URL(filePath: folder), includingPropertiesForKeys: nil)
+        .filter { $0.pathExtension == "wav" }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+    let clips: [(voice: String, samples: [Float])] = try files.map { url in
+        let file = try AVAudioFile(forReading: url)
+        let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(file.length))!
+        try file.read(into: buffer)
+        let samples = Array(UnsafeBufferPointer(start: buffer.floatChannelData![0], count: Int(buffer.frameLength)))
+        return (String(url.lastPathComponent.split(separator: "_")[0]), samples)
+    }
+    for model in Voiceprinter.Model.allCases {
+        let printer = try await Voiceprinter(model)
+        let started = Duplex.now
+        var prints: [[Float]] = []
+        for clip in clips { prints.append(try await printer.print(clip.samples)) }
+        let each = (Duplex.now - started) / Double(clips.count) * 1000
+        func cos(_ a: [Float], _ b: [Float]) -> Double { Double(zip(a, b).reduce(0) { $0 + $1.0 * $1.1 }) }
+        var same: [(Double, Double)] = [], other: [(Double, Double)] = []  // (score, shorter clip's seconds)
+        for i in clips.indices {
+            for j in clips.indices where j > i {
+                let pair = (cos(prints[i], prints[j]), Double(min(clips[i].samples.count, clips[j].samples.count)) / 16_000)
+                if clips[i].voice == clips[j].voice { same.append(pair) } else { other.append(pair) }
+            }
+        }
+        // The threshold where as many same-voice pairs fall below as other-voice pairs above.
+        let scores = (same + other).map(\.0).sorted()
+        var best = (threshold: 0.0, error: 1.0)
+        for t in scores {
+            let missed = Double(same.filter { $0.0 < t }.count) / Double(same.count)
+            let confused = Double(other.filter { $0.0 >= t }.count) / Double(other.count)
+            if max(missed, confused) < best.error { best = (t, max(missed, confused)) }
+        }
+        func stats(_ pairs: [(Double, Double)]) -> String {
+            guard !pairs.isEmpty else { return "-" }
+            let v = pairs.map(\.0).sorted()
+            return String(format: "mean %.2f, %.2f-%.2f", v.reduce(0, +) / Double(v.count), v.first!, v.last!)
+        }
+        print("\(model.rawValue): \(String(format: "%.0f", each)) ms a clip")
+        print("  same voice:  \(stats(same))   (both over 1.5 s: \(stats(same.filter { $0.1 > 1.5 })))")
+        print("  other voice: \(stats(other))   (both over 1.5 s: \(stats(other.filter { $0.1 > 1.5 })))")
+        print(String(format: "  best threshold %.2f: %.1f%% wrong either way", best.threshold, best.error * 100))
+        let longSame = same.filter { $0.1 > 1.5 }, longOther = other.filter { $0.1 > 1.5 }
+        var bestLong = (threshold: 0.0, error: 1.0)
+        for t in (longSame + longOther).map(\.0).sorted() {
+            let e = max(Double(longSame.filter { $0.0 < t }.count) / Double(max(1, longSame.count)),
+                        Double(longOther.filter { $0.0 >= t }.count) / Double(max(1, longOther.count)))
+            if e < bestLong.error { bestLong = (t, e) }
+        }
+        print(String(format: "  over 1.5 s only: threshold %.2f, %.1f%% wrong", bestLong.threshold, bestLong.error * 100))
+        var pairs: [String: [Double]] = [:]
+        for i in clips.indices { for j in clips.indices where j > i && clips[i].voice != clips[j].voice
+            && min(clips[i].samples.count, clips[j].samples.count) > 24_000 {
+            pairs[[clips[i].voice, clips[j].voice].sorted().joined(separator: "/"), default: []].append(cos(prints[i], prints[j]))
+        } }
+        let close = pairs.map { ($0.key, $0.value.reduce(0, +) / Double($0.value.count)) }.sorted { $0.1 > $1.1 }.prefix(4)
+        print("  most alike: " + close.map { String(format: "%@ %.2f", $0.0, $0.1) }.joined(separator: ", "))
+        // As the app will: a voice is the average of its other clips; each clip
+        // is matched against every voice, and a voice left out entirely should
+        // come out as nobody it knows.
+        func centroid(_ vectors: [[Float]]) -> [Float] {
+            var sum = [Float](repeating: 0, count: vectors[0].count)
+            for v in vectors { for k in sum.indices { sum[k] += v[k] } }
+            let length = sum.reduce(0) { $0 + $1 * $1 }.squareRoot()
+            return sum.map { $0 / length }
+        }
+        let voices = Array(Set(clips.map(\.voice))).sorted()
+        for threshold in printer.model == .campplus ? [0.60, 0.65, 0.70, 0.75, 0.80] : [0.55, 0.60, 0.65, 0.70] {
+            var right = 0, wrong = 0, unsure = 0, newRight = 0, newWrong = 0
+            var longRight = 0, longTotal = 0
+            for i in clips.indices {
+                var known: [(String, [Float])] = []
+                for voice in voices {
+                    let others = clips.indices.filter { clips[$0].voice == voice && $0 != i }.map { prints[$0] }
+                    known.append((voice, centroid(others)))
+                }
+                let ranked = known.map { ($0.0, cos(prints[i], $0.1)) }.sorted { $0.1 > $1.1 }
+                if ranked[0].1 < threshold { unsure += 1 } else if ranked[0].0 == clips[i].voice { right += 1 } else { wrong += 1 }
+                if clips[i].samples.count > 24_000 {
+                    longTotal += 1
+                    if ranked[0].1 >= threshold && ranked[0].0 == clips[i].voice { longRight += 1 }
+                }
+                // As someone new: without their own voice among those known.
+                let stranger = ranked.filter { $0.0 != clips[i].voice }
+                if clips[i].samples.count > 24_000 {
+                    if stranger[0].1 < threshold { newRight += 1 } else { newWrong += 1 }
+                }
+            }
+            print(String(format: "  threshold %.2f: right %d, wrong %d, not sure %d of %d (long clips right %d of %d); a stranger (long clips) taken for someone they know %d of %d",
+                         threshold, right, wrong, unsure, clips.count, longRight, longTotal, newWrong, newRight + newWrong))
+        }
+    }
+    exit(0)
+}
+
 if CommandLine.arguments.contains("--weeks") {
     try await weeksRun()
     exit(0)
@@ -1001,8 +1098,13 @@ final class Tally: @unchecked Sendable {
 let tally = Report.tally
 
 let attention = AttentionSense()
+// --household: two people, by two of the system's voices, each telling it things.
+let household = CommandLine.arguments.contains("--household")
+let printer = household ? try await Voiceprinter(.campplus) : nil
+let houseLog = household ? try ConversationLog(directory: memoryFolder) : nil
 let loop = Loop(audio: audio, vad: try SileroVAD(model: vadURL), recognizer: recognizer, brain: brain, voice: voice,
-                memory: memory, attention: attention, log: nil, timing: PauseModel(), emit: Report.handle)
+                memory: memory, attention: attention, log: houseLog, voiceprinter: printer,
+                voices: household ? VoiceSense(Household()) : nil, timing: PauseModel(), emit: Report.handle)
 
 /// Away from the main actor: the loop calls it from its own.
 enum Report {
@@ -1047,6 +1149,7 @@ enum Report {
         say(String(format: "echo comes back %.0f ms late (match %.2f)", delay * 1000, match))
     case let .echoLevel(level):
         if let leak = level.leak { say(String(format: "echo comes back at %.3f of what was played", leak)) }
+    case let .voice(who): say("voice: \(who)")
     case let .problem(message): say("PROBLEM: \(message)")
     }
     }
@@ -1092,6 +1195,74 @@ func turn(_ phrases: [String], pausing: Double = 0.55) async throws {
     } else if CommandLine.arguments.contains("--from-right") || CommandLine.arguments.contains("--from-left") {
         say("the face had nowhere to turn")
     }
+}
+
+/// A line in one of the system's voices, 16 kHz.
+func spoken(_ text: String, by voice: String) throws -> [Float] {
+    let file = FileManager.default.temporaryDirectory.appending(path: "ccrun-say-\(UUID().uuidString).wav")
+    defer { try? FileManager.default.removeItem(at: file) }
+    let say = Process()
+    say.executableURL = URL(fileURLWithPath: "/usr/bin/say")
+    say.arguments = ["-v", voice, "-o", file.path, "--data-format=LEI16@16000", text]
+    try say.run()
+    say.waitUntilExit()
+    let audio = try AVAudioFile(forReading: file)
+    let buffer = AVAudioPCMBuffer(pcmFormat: audio.processingFormat, frameCapacity: AVAudioFrameCount(audio.length))!
+    try audio.read(into: buffer)
+    return Array(UnsafeBufferPointer(start: buffer.floatChannelData![0], count: Int(buffer.frameLength)))
+}
+
+/// One turn by `voice`: phrases with pauses between, as `turn` does.
+func turn(_ phrases: [String], by voice: String) async throws {
+    for (index, phrase) in phrases.enumerated() {
+        say("\(voice.split(separator: " ")[0]): \(phrase)")
+        await mouth.deliver(try spoken(phrase, by: voice))
+        if index + 1 < phrases.count { await mouth.pause(0.55) }
+    }
+    tally.lock.withLock {
+        tally.spokeUntil = Duplex.now
+        tally.waitingForReply = true
+    }
+    audio.markReply()
+}
+
+if household {
+    let lin = "Samantha", sam = "Daniel"
+    await mouth.pause(1)
+    for phrases in [["Hi there.", "I'm Lin, by the way."],
+                    ["My sister Ana is visiting on Saturday.", "We haven't talked in a year, so I'm a bit nervous."],
+                    ["Anyway, I'm going to make some tea."]] {
+        let before = Report.ended()
+        try await turn(phrases, by: lin)
+        await mouth.pauseForReply(after: before)
+        await mouth.pause(1.2)
+    }
+    say("(writing up what Lin said)")
+    try await memory.writeUp(with: brain)
+    print("  notes: " + (await memory.store.notes).map { "\($0.text) [\($0.about == nil ? "owner" : "voice")]" }.joined(separator: " | "))
+    for phrases in [["Hey there.", "I'm Sam, I live here with Lin."],
+                    ["Is anyone visiting this weekend?", "What do you know about Lin's sister?"],
+                    ["Fair enough.", "I like climbing, by the way, and I'm terrible at cooking."]] {
+        let before = Report.ended()
+        try await turn(phrases, by: sam)
+        await mouth.pauseForReply(after: before)
+        await mouth.pause(1.2)
+    }
+    for phrases in [["Hi, it's me again.", "Who did I say was coming on Saturday?"]] {
+        let before = Report.ended()
+        try await turn(phrases, by: lin)
+        await mouth.pauseForReply(after: before)
+        await mouth.pause(1.2)
+    }
+    try await memory.writeUp(with: brain)
+    let store = await memory.store
+    print("  voices: " + store.household.voices.map { "\($0.name ?? "unnamed") (\($0.heard) turns)" }.joined(separator: ", "))
+    for note in store.notes {
+        print("  note: \(note.text) [\(store.household.voice(note.about)?.name ?? (note.about == nil ? "owner" : note.about!))]")
+    }
+    running.cancel()
+    try? FileManager.default.removeItem(at: memoryFolder)
+    exit(0)
 }
 
 if CommandLine.arguments.contains("--commands") {

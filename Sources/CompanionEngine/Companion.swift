@@ -130,6 +130,24 @@ public final class Companion {
     /// it talks; kept between presses of Talk while the app is open.
     private var echoLevel = EchoLevel()
     private var memory: Memory?
+    private var voiceprinter: Voiceprinter?
+
+    /// Tell the people in the house apart by voice, each with their own
+    /// memory. Voiceprints stay on this device, sealed with the rest. Remembered.
+    public var tellsVoicesApart: Bool = UserDefaults.standard.object(forKey: "voices") as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(tellsVoicesApart, forKey: "voices")
+            guard tellsVoicesApart != oldValue, phase == .live else { return }
+            pause()
+            Task {
+                if tellsVoicesApart { await loadVoiceprinter() }
+                await start()
+            }
+        }
+    }
+
+    /// The voices it knows by name, for settings.
+    public private(set) var voiceNames: [String] = []
     private var dictionary: Dictionary?
     private var writing: Task<Void, Never>?
     private var idleWatch: Task<Void, Never>?
@@ -181,6 +199,7 @@ public final class Companion {
             if await memory?.locked == true {
                 notice = "Its memory is there but couldn't be opened, so it's left untouched and nothing new is saved."
             }
+            if tellsVoicesApart { await loadVoiceprinter() }
             dictionary = Resources.dictionary.flatMap(Dictionary.init(file:))
             notes = await memory?.notes ?? []
             try await loadBrain()
@@ -188,6 +207,18 @@ public final class Companion {
             if listensWhenReady { await start() }
         } catch {
             phase = .failed(error.localizedDescription)
+        }
+    }
+
+    /// The voiceprint model, fetched the first time. Without it everyone is
+    /// one person, as before; that's said, not hidden.
+    private func loadVoiceprinter() async {
+        guard voiceprinter == nil else { return }
+        phase = .loading("Learning to tell voices apart…")
+        do {
+            voiceprinter = try await Voiceprinter(.campplus)
+        } catch {
+            notice = "Couldn't load what tells voices apart, so for now everyone is one person to it."
         }
     }
 
@@ -261,8 +292,12 @@ public final class Companion {
             audio.buffer.listener = { [beat] block in beat.hear(block) }
             let log = try? ConversationLog(directory: Resources.conversations, sealer: sealer)
             let (stream, continuation) = AsyncStream<LoopEvent>.makeStream()
+            let household = await memory?.household ?? Household()
+            voiceNames = household.voices.map { $0.name ?? "someone not yet named" }
             let loop = Loop(audio: audio, vad: try SileroVAD(model: vadURL), recognizer: recognizer, brain: brain,
                             voice: voice, memory: memory, attention: attention, dictionary: dictionary, log: log,
+                            voiceprinter: tellsVoicesApart ? voiceprinter : nil,
+                            voices: tellsVoicesApart && voiceprinter != nil ? VoiceSense(household) : nil,
                             timing: timing,
                             echoLevel: echoLevel,
                             emit: Self.forward(to: continuation))
@@ -414,6 +449,12 @@ public final class Companion {
         notes = await memory?.notes ?? []
         recalled = []
         lines = []
+        voiceNames = []
+        // The conversation holds the voices too: start it again without them.
+        if phase == .live {
+            pause()
+            await start()
+        }
     }
 
     /// Forget how this person pauses and start learning again.
@@ -461,7 +502,7 @@ public final class Companion {
             save(model)
         case let .echoLevel(level):
             echoLevel = level
-        case .overlap, .drafted, .echoDelay:
+        case .overlap, .drafted, .echoDelay, .voice:
             break
         case let .problem(message):
             notice = message

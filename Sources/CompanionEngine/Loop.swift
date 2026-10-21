@@ -28,6 +28,9 @@ public enum LoopEvent: Sendable {
     /// multiple of the reply's learned echo (nil before that is learned), and
     /// the verdict.
     case overlap(heard: String, saying: String, loudness: Double?, echo: Bool)
+    /// Whose voice a turn was, once it was theirs for certain: a name,
+    /// "someone new", "a stranger" or "not sure", with how alike.
+    case voice(String)
     case problem(String)
 }
 
@@ -78,6 +81,16 @@ public actor Loop {
         /// coming up to remind them of.
         var checkIn: Note?
         var coming: Happening?
+        /// Their voiceprint, how long the turn was, and who it sounded like
+        /// while drafting: a voice's id, `Loop.nobody` for a stranger.
+        var print: [Float]?
+        var seconds = 0.0
+        var who: String?
+        /// Working out their voiceprint, from the start of the draft.
+        var printing: Task<[Float]?, Never>?
+        /// Finalised, but their voiceprint isn't in yet: their turn is
+        /// recorded once it is, and its reply after.
+        var awaitingVoice = false
         var started = 0.0
         var said: [Said] = []
         var committed = false
@@ -124,6 +137,16 @@ public actor Loop {
     private var crisis: (level: Crisis.Level, since: Int, told: Bool, replies: Int)?  // only ever .clear
     static let crisisLasts = 20
     private let region = Locale.current.region?.identifier
+    /// Telling voices apart, if it does: the print model and the voices.
+    private let voiceprinter: Voiceprinter?
+    private let voices: VoiceSense?
+    /// Whose voice it last was sure of.
+    private var speaker: String?
+    /// Stands for someone it doesn't know: matches nobody's notes.
+    static let nobody = "nobody"
+    /// What others in the house told it: not denied, not passed on.
+    static let theirs = "What anyone else told you is theirs: if asked about it, say kindly that it's theirs to share, "
+        + "not yours, without pretending you don't know them."
     /// Catching up waits until they've said a couple of things, and comes
     /// at most once in this many turns.
     static let firstCheckIn = 4
@@ -133,8 +156,10 @@ public actor Loop {
 
     public init(audio: any AudioIO, vad: SileroVAD, recognizer: Recognizer, brain: Brain, voice: Voice,
                 memory: Memory? = nil, attention: AttentionSense? = nil, dictionary: Dictionary? = nil,
-                log: ConversationLog?,
+                log: ConversationLog?, voiceprinter: Voiceprinter? = nil, voices: VoiceSense? = nil,
          timing: PauseModel, echoLevel: EchoLevel = EchoLevel(), emit: @escaping @Sendable (LoopEvent) -> Void) {
+        self.voiceprinter = voiceprinter
+        self.voices = voices
         self.audio = audio
         self.vad = vad
         self.recognizer = recognizer
@@ -234,12 +259,18 @@ public actor Loop {
         let id = reply.id + 1
         reply = Reply(id: id)
         let samples = audio.buffer.read(turnStart, processed)
+        // Whose voice, alongside the words.
+        if voices != nil, let voiceprinter {
+            reply.printing = Task { try? await voiceprinter.print(samples) }
+            reply.seconds = Double(samples.count) / 16_000
+        }
         draft = Task { await self.write(id, samples) }
     }
 
     private func write(_ id: Int, _ samples: [Float]) async {
         reply.started = Duplex.now
         do {
+            let printing = reply.printing
             var text = try await recognizer.transcribe(samples)
             guard reply.id == id, !Task.isCancelled else { return }
             reply.times.transcribed = Duplex.now - reply.started
@@ -257,8 +288,38 @@ public actor Loop {
             }
             taker.transcribed(Ending.of(text))
             reply.person = text
-            let turns = history + [Turn(.person, text)]
-            var recollection = await memory?.recollect(for: text) ?? Recollection()
+            var talking: String?
+            reply.who = speaker
+            var sureOfVoice = false
+            if let voices, let print = await printing?.value ?? nil, reply.id == id {
+                reply.print = print
+                let household = voices.current
+                switch voices.peek(print, seconds: reply.seconds) {
+                case let .known(id, _):
+                    reply.who = id
+                    sureOfVoice = true
+                    if household.voices.count > 1 {
+                        talking = (household.voice(id)?.name.map { "You're talking with \($0)." }
+                            ?? "You're talking with someone whose name you don't know yet; you could ask.")
+                            + " " + Self.theirs
+                    }
+                case .new, .stranger:
+                    reply.who = Self.nobody
+                    talking = "This voice isn't one you know: it may be someone other than the person you usually "
+                        + "talk with. Be friendly, don't bring up anything you know about anyone, and if they haven't "
+                        + "said who they are, ask their name. " + Self.theirs
+                case .unsure:
+                    break
+                }
+            }
+            let who = reply.who
+            // Only their side of the conversation, not anyone else's.
+            let turns = Household.visible(history, to: voices == nil ? nil : who) + [Turn(.person, text, who: who)]
+            // Catching up and reminders only for a voice it's sure of: a new
+            // person's short "hey" sounds like whoever spoke last.
+            let sure = sureOfVoice
+            var recollection = await memory?.recollect(for: text, who: who) ?? Recollection()
+            recollection.talking = talking
             if let memory, let command = MemoryCommand.parse(text) {
                 (reply.memory, recollection.aside) = await plan(command, with: memory)
             }
@@ -287,17 +348,18 @@ public actor Loop {
             // What's coming up, or what they did: the calendar and the diary.
             let agenda = Agenda.ask(in: text)
             if let agenda, let memory {
-                recollection.aside = [recollection.aside, await memory.agenda(agenda)].compactMap { $0 }.joined(separator: " ")
+                recollection.aside = [recollection.aside, await memory.agenda(agenda, for: who)].compactMap { $0 }.joined(separator: " ")
             }
             // Now and then, when nothing else is going on: something to catch up on.
             // Something coming up today or tomorrow comes first, then how
             // something went.
             if let memory, crisis == nil, lookup == nil, agenda == nil, reply.memory == nil, turnCount >= Self.firstCheckIn,
+               voices == nil || sure,
                turnCount - caughtUp >= Self.checkInEvery || caughtUp == 0 {
-                if let (day, happening) = await memory.ahead() {
+                if let (day, happening) = await memory.ahead(for: who) {
                     (recollection.coming, recollection.comingDay) = (happening, day)
                     reply.coming = happening
-                } else if let note = await memory.checkIn() {
+                } else if let note = await memory.checkIn(for: who) {
                     // Told it already, unasked: caught up.
                     if CheckIn.asked(text, about: note) {
                         await memory.checkedIn(note.id)
@@ -425,7 +487,71 @@ public actor Loop {
 
     private func commit() {
         reply.committed = true
-        let turn = record(Turn(.person, reply.person))
+        // Their voice still being worked out: record the turn when it's in.
+        if voices != nil, reply.print == nil, let printing = reply.printing {
+            reply.awaitingVoice = true
+            let id = reply.id
+            Task {
+                let print = await printing.value
+                await self.voiceArrived(print, for: id)
+            }
+        } else {
+            settleVoice()
+            recordTheirs()
+        }
+        emit(.heard(reply.person))
+        emit(.timing(taker.model))
+        if reply.held.isEmpty { emit(.mood(.thinking)) }
+        for (sentence, samples, mouth) in reply.held { say(sentence, samples, mouth) }
+        reply.held = []
+    }
+
+    private func voiceArrived(_ print: [Float]?, for id: Int) {
+        guard reply.id == id, reply.awaitingVoice else { return }
+        reply.print = print
+        settleVoice()
+        recordTheirs()
+        reply.awaitingVoice = false
+        finishIfSaid()
+    }
+
+    /// Now theirs for certain: learn the voice, and any name they gave.
+    private func settleVoice() {
+        if let voices, let print = reply.print {
+            let heard = voices.hear(print, seconds: reply.seconds)
+            if case let .new(id) = heard {
+                // The stranger turns that led here were theirs, and any name in them.
+                for i in history.indices where history[i].who == Self.nobody { history[i].who = id }
+                let said = history.filter { $0.who == id }.map(\.text) + [reply.person]
+                if let name = said.lazy.compactMap(Household.introduces).first { voices.name(id, name) }
+            }
+            switch heard {
+            case let .known(id, _), let .new(id): speaker = id
+            // Not the owner's to keep: what a stranger says isn't put in anyone's notes.
+            case .stranger: speaker = Self.nobody
+            case .unsure: break
+            }
+            switch heard {
+            case let .known(id, score):
+                emit(.voice(String(format: "%@ (%.2f)", voices.current.voice(id)?.name ?? "known, not named", score)))
+            case .new: emit(.voice("someone new"))
+            case let .stranger(best, previous):
+                emit(.voice(String(format: "a stranger (%.2f to the nearest voice, %@ to the last stranger, %.1f s)", best,
+                                   previous.map { String(format: "%.2f", $0) } ?? "none", reply.seconds)))
+            case .unsure: emit(.voice(String(format: "not sure (%.1f s)", reply.seconds)))
+            }
+            if let speaker, speaker != Self.nobody, let name = Household.introduces(reply.person),
+               voices.current.voice(speaker)?.name == nil {
+                voices.name(speaker, name)
+            }
+            let household = voices.current
+            Task { [memory] in await memory?.keep(household) }
+        }
+    }
+
+    /// Their turn into the conversation and its log, as whoever it was.
+    private func recordTheirs() {
+        let turn = record(Turn(.person, reply.person, who: voices == nil ? nil : speaker))
         if let action = reply.memory, let memory {
             let session = log?.session ?? "unlogged"
             Task {
@@ -436,16 +562,12 @@ public actor Loop {
                 emit(.memoryChanged)
             }
         }
-        emit(.heard(reply.person))
-        emit(.timing(taker.model))
-        if reply.held.isEmpty { emit(.mood(.thinking)) }
-        for (sentence, samples, mouth) in reply.held { say(sentence, samples, mouth) }
-        reply.held = []
     }
 
     /// Said everything it wrote: the turn is open again.
     private func finishIfSaid() {
-        guard reply.committed, reply.written, !reply.finished, reply.held.isEmpty, audio.backlog <= 0 else { return }
+        guard reply.committed, reply.written, !reply.finished, !reply.awaitingVoice, reply.held.isEmpty,
+              audio.backlog <= 0 else { return }
         // Its last words are still coming back off the room: the turn isn't
         // open until they have, or they would open it.
         if let end = reply.said.last?.end, Duplex.now < end + echoDelay.delay + Self.ringing { return }
@@ -564,10 +686,12 @@ public actor Loop {
 
     /// Have the model read the conversation so far while they talk.
     private func anticipate() {
-        let (brain, memory, history) = (brain, memory, history)
+        // As the next reply will see it: whoever spoke last, and only their side.
+        let who = voices == nil ? nil : speaker
+        let (brain, memory, visible) = (brain, memory, Household.visible(history, to: who))
         Task {
-            let standing = await memory?.standing() ?? Recollection()
-            try? await brain.anticipate(history, remembering: standing)
+            let standing = await memory?.standing(for: who) ?? Recollection()
+            try? await brain.anticipate(visible, remembering: standing)
         }
     }
 
