@@ -68,6 +68,16 @@ public final class Companion {
         }
     }
 
+    /// Who it is: playful, gentle or deadpan. Remembered; from the next reply on.
+    public var personality: Personality = Personality(rawValue: UserDefaults.standard.string(forKey: "personality") ?? "")
+        ?? .playful {
+        didSet {
+            UserDefaults.standard.set(personality.rawValue, forKey: "personality")
+            let (brain, personality) = (brain, personality)
+            Task { await brain?.set(personality) }
+        }
+    }
+
     /// Start listening by itself once ready. Off only for measuring (ccrun),
     /// where nobody is there to be listened to.
     public var listensWhenReady = true
@@ -167,6 +177,7 @@ public final class Companion {
         defer { face.set(.idle, at: Duplex.now) }
         brain = nil
         let brain = try await Brain(model: model, at: directory)
+        await brain.set(personality)
         try await brain.warmUp()
         self.brain = brain
         phase = .ready

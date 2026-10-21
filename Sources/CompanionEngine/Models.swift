@@ -23,7 +23,8 @@ public struct ChatModel: Pinned, Identifiable, Hashable, Sendable {
     public var sampling: Sampling {
         id.hasPrefix("qwen")
             ? Sampling(temperature: 0.7, topP: 0.8, topK: 20, presencePenalty: 1.0, repetitionPenalty: 1.05)
-            : Sampling(temperature: 0.7, topP: 0.95, topK: 64, presencePenalty: nil, repetitionPenalty: 1.05)
+            // Google recommends 1.0; at 0.7 Gemma's talk came out stiff and samey.
+            : Sampling(temperature: 0.9, topP: 0.95, topK: 64, presencePenalty: nil, repetitionPenalty: 1.05)
     }
 
     public let id: String  // folder name, and what is remembered as the choice

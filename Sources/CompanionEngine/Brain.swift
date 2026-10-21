@@ -21,6 +21,10 @@ public actor Brain {
     /// Writing notes has its own: the conversation's stays as it was.
     private var notesCache: PromptCache
     private let stops: Set<Int>
+    /// Who it is; changing it changes its instructions from the next reply on.
+    public private(set) var personality = Personality.playful
+
+    public func set(_ personality: Personality) { self.personality = personality }
     /// Of the last prompt, the tokens that had to be read and its whole length.
     public private(set) var lastPrompt = (read: 0, length: 0)
     /// The most a reply runs to: about half a minute of speech. Spoken
@@ -61,7 +65,8 @@ public actor Brain {
                                             topK: sampling.topK, repetitionPenalty: sampling.repetitionPenalty,
                                             repetitionContextSize: 64, presencePenalty: sampling.presencePenalty,
                                             presenceContextSize: 64)
-        return try generate(Prompts.messages(turns, remembering: recollection), cache: &cache, parameters: parameters,
+        return try generate(Prompts.messages(turns, remembering: recollection, personality: personality), cache: &cache,
+                            parameters: parameters,
                             emit: emit)
     }
 
@@ -75,7 +80,8 @@ public actor Brain {
         let shown = Array(next.suffix(Window.shown(next.count)).dropLast())
         guard !shown.isEmpty else { return }
         let prompt = try context.tokenizer.applyChatTemplate(
-            messages: Prompts.messages(shown, remembering: Recollection(profile: recollection.profile), windowed: false),
+            messages: Prompts.messages(shown, remembering: Recollection(profile: recollection.profile), personality: personality,
+                                       windowed: false),
             tools: nil, additionalContext: ["enable_thinking": false])
         let fresh = try cache.prepare(for: prompt)
         guard fresh.count > 1 else { return }
@@ -120,10 +126,13 @@ public actor Brain {
 }
 
 enum Prompts {
-    static let system = """
-    You are a companion: a friendly protogen with a glowing visor for a face, talking out loud with one person. \
-    Everything you say is spoken by a voice, so talk the way people talk: usually one to three short sentences, \
-    plain words, no lists, no markdown, no emoji, nothing in brackets. Talk like a friend, not an assistant: \
+    /// The rules every personality keeps, after its character.
+    static let rules = """
+    You are talking out loud with one person. Everything you say is spoken by a voice, so talk the way people \
+    actually talk, not the way books are written: contractions (I'm, don't, that's), everyday words, little \
+    reactions first ("Oh no.", "Ooh, nice.", "Hah.", "Yeah, fair."), and sometimes just a few words instead of a \
+    full sentence. Vary how you say things; don't sound like a textbook or a customer service desk. Usually one to \
+    three short sentences; no lists, no markdown, no emoji, nothing in brackets. Talk like a friend, not an assistant: \
     never end with offers or check-ins like "Is there anything else?", "What would you like to talk about next?" \
     or "Let me know if…". Ask a question only when you are curious about what they said, and not often; it is \
     fine to just answer and let them lead. \
@@ -145,9 +154,11 @@ enum Prompts {
     /// What it knows about them goes in the instructions, which change only
     /// when a note is written. What came to mind for this turn goes before
     /// their last words, so everything earlier stays in the attention cache.
+    static func system(_ personality: Personality) -> String { personality.instructions + "\n\n" + rules }
+
     static func messages(_ turns: [Turn], remembering recollection: Recollection = Recollection(),
-                         windowed: Bool = true) -> [[String: any Sendable]] {
-        let instructions = [system, recollection.knowing].compactMap { $0 }.joined(separator: "\n\n")
+                         personality: Personality = .playful, windowed: Bool = true) -> [[String: any Sendable]] {
+        let instructions = [system(personality), recollection.knowing].compactMap { $0 }.joined(separator: "\n\n")
         var messages: [[String: any Sendable]] = [["role": "system", "content": instructions]]
         var previous: Turn.Speaker?
         for turn in windowed ? Array(turns.suffix(Window.shown(turns.count))) : turns {

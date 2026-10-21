@@ -232,6 +232,13 @@ struct SettingsView: View {
                     }
                 }
             }
+            Section("Personality") {
+                Picker("Personality", selection: $companion.personality) {
+                    ForEach(Personality.allCases) { Text($0.name).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                Text(companion.personality.summary).font(.caption).foregroundStyle(.secondary)
+            }
             Section("Face") {
                 Picker("Visor", selection: $style) {
                     ForEach(VisorStyle.allCases) { Text($0.name).tag($0) }

@@ -483,6 +483,7 @@ func ask(_ lines: [String]) async throws {
     let model = ModelCatalog.model(option("--model")) ?? ModelCatalog.recommended
     guard let directory = ModelStore.location(of: model) else { print("\(model.name) isn't downloaded"); return }
     let brain = try await Brain(model: model, at: directory)
+    if let personality = option("--personality").flatMap(Personality.init(rawValue:)) { await brain.set(personality) }
     let dictionary = CommandLine.arguments.contains("--no-dictionary") ? nil : Resources.dictionary.flatMap(Dictionary.init(file:))
     for line in lines {
         let found = dictionary?.aside(for: line)
