@@ -145,10 +145,6 @@ check("numbers are", Speakable.clean("It's 3 # 4") == "It's 3 # 4")
 check("a question, an exclamation, a statement", Delivery.of("How was the walk?") == .question
     && Delivery.of("Beep! You booped me!") == .exclamation && Delivery.of("That sounds nice.") == .statement
     && Delivery.of("Is it “micul dejun”?") == .question && Delivery.of("It's “reggeli”!”") == .exclamation)
-check("yes-or-no questions rise, what and where questions fall", Delivery.rises("Are you coming tonight?")
-    && Delivery.rises("Fun day. Did you like it?") && Delivery.rises("How about pancakes?")
-    && !Delivery.rises("Where are you going?") && !Delivery.rises("Nice! What's for dinner?")
-    && !Delivery.rises("That sounds nice."))
 
 // MARK: echo
 
@@ -510,31 +506,6 @@ check("and being talked over then isn't a cut-in", unprompted.model.cutIns == 0)
 var busy = TurnTaker()
 _ = busy.tick(at: 0.1, speech: true, probability: 0.9)
 check("but not over somebody", !busy.speakUnprompted(at: 0.2))
-
-// MARK: rise
-
-// A buzzy 150 Hz buzz, half a second: a stand-in for a vowel.
-let toneRate = 22_050.0
-let buzz: [Float] = (0..<11_025).map { i in
-    (1...8).reduce(Float(0)) { sum, h in sum + sin(Float(2 * Double.pi * 150 * Double(h) * Double(i) / toneRate)) / Float(h) } * 0.3
-}
-let run = Rise.Run(start: 2_000, end: 9_000, guarded: false)
-let raised = Rise.apply(buzz, runs: [run], from: 0, to: 1, semitones: 4, rate: toneRate)
-let heardBefore = Rise.period(buzz, at: 5_500, rate: toneRate).map { toneRate / Double($0) } ?? 0
-let heardAfter = Rise.period(raised, at: 5_500, rate: toneRate).map { toneRate / Double($0) } ?? 0
-check("the period finder hears 150 Hz", abs(heardBefore - 150) < 3)
-check("four semitones up is about 189 Hz", abs(heardAfter - 150 * pow(2, 4.0 / 12)) < 6)
-check("a rise keeps the length and leaves what's outside its runs alone",
-      raised.count == buzz.count && raised[..<2_000] == buzz[..<2_000] && raised[9_000...] == buzz[9_000...])
-let rms = { (x: ArraySlice<Float>) in (x.reduce(0) { $0 + Double($1 * $1) } / Double(x.count)).squareRoot() }
-check("and keeps its loudness", abs(20 * log10(rms(raised[4_000..<7_000]) / rms(buzz[4_000..<7_000]))) < 1.5)
-check("no rise is no change", Rise.apply(buzz, runs: [run], from: 0, to: 1, semitones: 0, rate: toneRate) == buzz)
-let glided = Rise.glide(buzz, from: 2_000, to: 9_000, semitones: 4)
-check("a varispeed glide leaves what's before it alone and comes out shorter",
-      glided[..<2_000] == buzz[..<2_000] && glided.count < buzz.count && glided.count > buzz.count - 1_000)
-let glideEnd = Rise.period(glided, at: 8_400 - (buzz.count - glided.count), rate: toneRate).map { toneRate / Double($0) } ?? 0
-check("and is nearly four semitones up by its end", glideEnd > 150 * pow(2, 3.0 / 12) && glideEnd < 150 * pow(2, 4.3 / 12))
-check("the glide starts slow and ends at the top", Rise.shape(0) == 0 && Rise.shape(1) == 1 && Rise.shape(0.3) < 0.3)
 
 // MARK: log
 

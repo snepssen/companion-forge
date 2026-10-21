@@ -309,21 +309,4 @@ public enum Delivery: String, Sendable {
         default: return .statement
         }
     }
-
-    /// Whether a question ends on a rise. In English a yes-or-no question
-    /// does ("Are you coming?"), and one asking what, where or how mostly
-    /// falls like a statement ("Where are you going?") — except a suggestion
-    /// ("How about pancakes?"). Read from the last sentence only.
-    public static func rises(_ text: String) -> Bool {
-        guard of(text) == .question else { return false }
-        let last = text.trimmingCharacters(in: .whitespacesAndNewlines).dropLast()
-        let start = last.lastIndex(where: { ".!?".contains($0) }).map { last.index(after: $0) } ?? last.startIndex
-        let words = last[start...].lowercased().split(whereSeparator: { !$0.isLetter && $0 != "'" })
-        guard let first = words.first else { return true }
-        if ["how", "what"].contains(first), words.dropFirst().first == "about" { return true }
-        return !Self.asking.contains(String(first))
-    }
-
-    static let asking: Set<String> = ["what", "what's", "where", "where's", "when", "when's", "who", "who's",
-                                      "whom", "whose", "why", "how", "how's", "which"]
 }
