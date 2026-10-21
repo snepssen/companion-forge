@@ -19,6 +19,8 @@
 //   ccrun --lipsync "text"      the mouth from the voice's phoneme timings, beside the spelling estimate
 //   ccrun --say "text" [--hint ro]  out loud, each part in its language
 //   ccrun --intonation "words" [--quiet]  as statement, question and exclamation: pitch measured, then heard
+//   ccrun --rise "a? | b?" --out <folder> [--semitones 2,4,6] [--quiet]
+//                               each question with its ending glided up that much: WAVs and a listening page
 //   ccrun --recall              how the embedder ranks notes, for the thresholds
 //   ccrun --long [--anticipate] a long conversation: prompt re-reading and first-word times
 //   ccrun --ask "a | b"         each said to it on its own, and its answer
@@ -511,6 +513,82 @@ func intonation(_ words: String) async throws {
             blurt.stop()
         }
     }
+}
+
+/// 16-bit mono WAV.
+func wav(_ samples: [Float], rate: Double) -> Data {
+    var data = Data()
+    func put<T: FixedWidthInteger>(_ value: T) { withUnsafeBytes(of: value.littleEndian) { data.append(contentsOf: $0) } }
+    let bytes = UInt32(samples.count * 2)
+    data.append(contentsOf: Array("RIFF".utf8)); put(36 + bytes); data.append(contentsOf: Array("WAVEfmt ".utf8))
+    put(UInt32(16)); put(UInt16(1)); put(UInt16(1)); put(UInt32(rate)); put(UInt32(rate) * 2); put(UInt16(2)); put(UInt16(16))
+    data.append(contentsOf: Array("data".utf8)); put(bytes)
+    for s in samples { put(Int16(max(-1, min(1, s)) * 32_767)) }
+    return data
+}
+
+/// Each question as the voice reads it, then with its ending raised by each
+/// of `semitones` as a varispeed glide, and one pitch-mark (PSOLA) version
+/// beside them: WAVs and a page to hear them side by side. One take per
+/// question, so the versions differ by the rise alone.
+func rise(_ lines: [String], semitones: [Double], out: URL) async throws {
+    guard let voice = ExpressiveVoice() else { print("no voice-forge voice"); return }
+    try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+    let versions: [(name: String, file: String, make: (ExpressiveVoice.Take) -> [Float])] =
+        [("as read", "read", { $0.samples })]
+        + semitones.filter { $0 != 0 }.map { amount in
+            (String(format: "glide +%.0f", amount), String(format: "glide%.0f", amount), { $0.glided(by: amount) })
+        }
+        + [("pitch marks +4", "psola4", { $0.raised(by: 4) })]
+    var rows = ""
+    for (n, line) in lines.enumerated() {
+        let take = try voice.take(line, delivery: Delivery.of(line))
+        if let rising = take.rising {
+            print(String(format: "%@  (rise over %.2f-%.2f s)", line, Double(rising.from) / voice.sampleRate, Double(rising.to) / voice.sampleRate))
+        } else {
+            print("\(line)  (no rise: \(Delivery.rises(line) ? "nowhere to put it" : "asks what/where/how, so it falls"))")
+        }
+        var cells = ""
+        for version in versions {
+            let samples = version.make(take)
+            print(String(format: "  %-15@ %.2f s", version.name as NSString, Double(samples.count) / voice.sampleRate))
+            fflush(stdout)
+            let data = wav(samples, rate: voice.sampleRate)
+            try data.write(to: out.appending(path: String(format: "%02d-%@.wav", n + 1, version.file)))
+            cells += "<td><audio controls preload=\"none\" src=\"data:audio/wav;base64,\(data.base64EncodedString())\"></audio></td>"
+            if !CommandLine.arguments.contains("--quiet") {
+                let blurt = try Blurt(samples, rate: voice.sampleRate, spatial: false)
+                try await Task.sleep(for: .seconds(blurt.end - Duplex.now + 0.5))
+                blurt.stop()
+            }
+        }
+        rows += "<tr><th>\(line)</th>\(cells)</tr>\n"
+    }
+    let heads = versions.map { "<th>\($0.name)</th>" }.joined()
+    let page = """
+    <!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Question Rise</title>
+    <style>:root{--bg:#fff;--fg:#1d1d1f;--muted:#6e6e73;--line:#ddd}
+    @media (prefers-color-scheme:dark){:root{--bg:#1c1c1e;--fg:#f2f2f7;--muted:#98989d;--line:#3a3a3c}}
+    body{background:var(--bg);color:var(--fg);font:15px -apple-system,system-ui,sans-serif;margin:16px}
+    p{color:var(--muted);max-width:60em}.wrap{overflow-x:auto}table{border-collapse:collapse}
+    th,td{border-bottom:1px solid var(--line);padding:8px;text-align:left;vertical-align:middle}audio{width:170px}</style>
+    <h1>Question rise</h1>
+    <p>One take per question; each column is the same take with only its ending changed. <b>Glide</b> raises
+    everything from the last stressed vowel to the end, smoothly, by that many semitones (it also shortens that
+    bit slightly). <b>Pitch marks</b> moves only vowel periods, keeping length; this voice is breathy, so it may
+    find little to move. The last row asks "where", which falls in English, so it is left as read.</p>
+    <div class="wrap"><table><tr><th></th>\(heads)</tr>\(rows)</table></div>
+    """
+    try page.write(to: out.appending(path: "rise.html"), atomically: true, encoding: .utf8)
+    print("-> \(out.appending(path: "rise.html").path)")
+}
+
+if let lines = option("--rise"), let out = option("--out") {
+    let semitones = (option("--semitones") ?? "2,4,6").split(separator: ",").compactMap { Double($0) }
+    try await rise(lines.split(separator: "|").map { $0.trimmingCharacters(in: .whitespaces) },
+                   semitones: semitones, out: URL(filePath: out))
+    exit(0)
 }
 
 if let words = option("--intonation") {
