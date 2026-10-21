@@ -52,7 +52,42 @@ public struct Happening: Codable, Identifiable, Equatable, Sendable {
     }
 }
 
+/// A week of the diary, in a few lines: what it reaches for first when
+/// looking further back than a few days.
+public struct WeekSummary: Codable, Identifiable, Equatable, Sendable {
+    public var id: String
+    /// The start of the week.
+    public var week: Date
+    public var text: String
+    public var vector: [Float]
+
+    public init(id: String = UUID().uuidString, week: Date, text: String, vector: [Float]) {
+        self.id = id
+        self.week = week
+        self.text = text
+        self.vector = vector
+    }
+}
+
 public enum Journal {
+    public static let weekInstructions = """
+    You keep a private diary about one person you talk with. Below are your diary entries for one week. Write \
+    a short summary of their week: two to four plain sentences about the main things that happened to them, \
+    how they seemed overall, and anything still going on for them. Write about them as "they". Only what's in \
+    the entries. No title, no lists: just the summary.
+    """
+
+    /// Weeks that are over, have diary entries, and aren't summarised yet,
+    /// oldest first.
+    public static func weeksToSum(_ journal: [JournalEntry], done: Set<Date>, now: Date = Date(),
+                                  calendar: Calendar = .current) -> [(week: Date, entries: [JournalEntry])] {
+        guard let thisWeek = calendar.dateInterval(of: .weekOfYear, for: now)?.start else { return [] }
+        let byWeek = Dictionary(grouping: journal) { calendar.dateInterval(of: .weekOfYear, for: $0.at)?.start ?? $0.at }
+        return byWeek.filter { $0.key < thisWeek && !done.contains($0.key) }
+            .map { (week: $0.key, entries: $0.value.sorted { $0.at < $1.at }) }
+            .sorted { $0.week < $1.week }
+    }
+
     public static let instructions = """
     You are a companion that talks out loud with one person, and you keep a private diary about your days \
     with them. In the conversation, "Companion" is you and "Person" is them. Write today's diary entry about \
@@ -74,9 +109,16 @@ public enum Journal {
 
     /// The model's entry, tidied; nil when it wrote nothing worth keeping.
     public static func entry(from output: String) -> String? {
-        var text = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        var text = output.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "**", with: "")
+        // One entry: E4B once wrote it, a rule, a heading, and wrote it again.
+        if let end = text.range(of: #"\n\s*\n|\n?\s*(?:\*\*\*|---|___)"#, options: .regularExpression) {
+            text = String(text[..<end.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
         text = text.replacing(/^(?:\*\*)?(?:dear diary|diary entry|entry)[:,.]?(?:\*\*)?\s*/.ignoresCase(), with: "")
         text = text.replacing(/\b(?:the )?[Cc]ompanion\b/) { _ in "I" }
+        // The transcript's name for them, back to "they".
+        text = text.replacing(/(^|[.!?]\s+)(?:[Tt]he )?[Pp]erson\b/) { "\($0.1)They" }
+            .replacing(/\b(?:the )?person\b/) { _ in "they" }
         // A date for a heading ("October 15th."), often the wrong one: not the entry.
         text = text.replacing(/^(?:[A-Za-z]+,? )?(?:[A-Za-z]+ \d{1,2}(?:st|nd|rd|th)?|\d{1,2}(?:st|nd|rd|th)? [A-Za-z]+)(?:,? \d{4})?[.:\n]\s*/, with: "")
         guard text.uppercased() != "NONE", text.split(separator: " ").count >= 4 else { return nil }
@@ -104,7 +146,7 @@ public enum Agenda {
         let monday = (1 - weekday + 7) % 7 == 0 ? 7 : (1 - weekday + 7) % 7
 
         let coming = #"\b(?:what(?:'s| is) (?:on|happening|coming up|planned)|what do i have|what have i got|what am i (?:doing|up to)|anything (?:on|coming up|planned|happening)|do i have anything|have i got anything|am i (?:busy|doing anything)|my plans|what(?:'s| is) my (?:week|day|weekend)|what are my plans|is there anything (?:on|coming))\b"#
-        let past = #"\b(?:what did i (?:do|get up to|talk|tell|say|mention)|what was i (?:doing|up to|talking about|saying)|what happened (?:on|last|yesterday|this)|how was my|what did we (?:talk|chat|discuss|do)|what were we (?:talking|chatting) about|did i (?:tell|mention|say)|did we (?:talk|speak|chat))\b"#
+        let past = #"\b(?:what did i (?:do|get up to|talk|tell|say|mention)|what was i (?:doing|up to|talking about|saying)|what happened (?:on|last|yesterday|this)|how was my|what did we (?:talk|chat|discuss|do)|what were we (?:talking|chatting) about|did i (?:tell|mention|say)|did we (?:talk|speak|chat)|what have i been (?:doing|up to)|how have i been|how(?:'ve| have) things been)\b"#
         if has(coming) {
             if has(#"\b(?:today|tonight)\b"#) { return .coming(from: today, to: today, label: "today") }
             if has(#"\btomorrow\b"#) { return .coming(from: plus(1), to: plus(1), label: "tomorrow") }
@@ -114,6 +156,8 @@ public enum Agenda {
             return .coming(from: today, to: plus(7), label: "this week")
         }
         if has(past) {
+            if has(#"\b(?:lately|recently|these days)\b"#) { return .past(from: plus(-28), to: today, label: "lately") }
+            if has(#"\blast month\b"#) { return .past(from: plus(-35), to: plus(-1), label: "over the last month") }
             if has(#"\byesterday\b"#) { return .past(from: plus(-1), to: plus(-1), label: "yesterday") }
             if has(#"\blast weekend\b"#) {
                 let back = (weekday + 1) % 7 + (weekday == 6 ? 7 : 0)  // the Saturday before this one
@@ -144,7 +188,7 @@ public enum Agenda {
     }
 
     /// For the reply to the question: what there is, or that there's nothing.
-    public static func answer(_ ask: Ask, happenings: [Happening], journal: [JournalEntry],
+    public static func answer(_ ask: Ask, happenings: [Happening], journal: [JournalEntry], weeks: [WeekSummary] = [],
                               calendar: Calendar = .current) -> String {
         let format = DateFormatter()
         format.calendar = calendar
@@ -163,6 +207,24 @@ public enum Agenda {
         case let .past(from, to, label):
             let last = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: to)) ?? to
             let found = journal.filter { $0.at >= from && $0.at < last }.sorted { $0.at < $1.at }
+            // Further back than a week or so: the week summaries, and the
+            // diary only for the days since the last of them.
+            if to.timeIntervalSince(from) > 10 * 86_400 {
+                let summed = weeks.filter { $0.week >= calendar.startOfDay(for: from) - 6 * 86_400 && $0.week < last }
+                    .sorted { $0.week < $1.week }
+                let after = summed.last.map { $0.week + 7 * 86_400 } ?? from
+                let recent = found.filter { $0.at >= after }
+                if !summed.isEmpty || !recent.isEmpty {
+                    let weekFormat = DateFormatter()
+                    weekFormat.calendar = calendar
+                    weekFormat.timeZone = calendar.timeZone
+                    weekFormat.dateFormat = "d MMMM"
+                    return "Your diary, \(label): "
+                        + (summed.map { "The week of \(weekFormat.string(from: $0.week)): \($0.text)" }
+                            + recent.map { "\(format.string(from: $0.at)): \($0.text)" }).joined(separator: " ")
+                        + " Tell them in your own words, and add nothing that isn't here."
+                }
+            }
             guard !found.isEmpty else {
                 return "Your diary has nothing \(label); maybe you didn't talk then. Say so; don't make anything up."
             }

@@ -542,7 +542,7 @@ public actor Loop {
         let coming = await memory?.ahead()
         let checkIn = coming == nil ? await memory?.checkIn() : nil
         guard let cue = Greeting.cue(last: last, checkIn: checkIn, coming: coming), taker.phase == .waiting else { return }
-        let recollection = Recollection(profile: await memory?.profile ?? [])
+        let recollection = await memory?.standing() ?? Recollection()
         emit(.mood(.thinking))
         let brain = brain
         guard let text = try? await brain.reply(to: [Turn(.person, cue)], remembering: recollection) { _ in },
@@ -566,8 +566,8 @@ public actor Loop {
     private func anticipate() {
         let (brain, memory, history) = (brain, memory, history)
         Task {
-            let profile = await memory?.profile ?? []
-            try? await brain.anticipate(history, remembering: Recollection(profile: profile))
+            let standing = await memory?.standing() ?? Recollection()
+            try? await brain.anticipate(history, remembering: standing)
         }
     }
 

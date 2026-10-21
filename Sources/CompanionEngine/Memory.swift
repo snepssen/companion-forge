@@ -49,17 +49,32 @@ public actor Memory {
     public var notes: [Note] { store.notes.sorted { $0.at > $1.at } }
     public var profile: [Note] { store.profile }
 
+    /// What it always knows: who they are, and how their last week went.
+    /// Changes seldom, so the instructions stay in the attention cache.
+    public func standing(now: Date = Date()) -> Recollection {
+        Recollection(profile: store.profile, lately: store.lately(now: now, entries: 2))
+    }
+
+    /// Diary entries this close in meaning to a question about the past come to mind.
+    static let diaryRelevant: Float = 0.55
+
     /// What comes to mind for what they just said.
     public func recollect(for text: String, now: Date = Date()) async -> Recollection {
-        let profile = store.profile
-        guard store.notes.contains(where: { !$0.lasting }) else { return Recollection(profile: profile) }
+        var recollection = standing(now: now)
+        let past = Remembering.asksAboutThePast(text)
+        guard store.notes.contains(where: { !$0.lasting }) || (past && !store.journal.isEmpty) else { return recollection }
         let vector = await embedder.embed([text], query: true)[0]
         let found = store.recall(text, vector: vector, now: now).map(\.note)
-        var excerpt: [Turn] = []
-        if Remembering.asksAboutThePast(text), let best = found.first {
-            excerpt = turns(behind: best)
+        recollection.notes = found
+        if past {
+            if let best = found.first { recollection.excerpt = turns(behind: best) }
+            // The diary, for what no note holds: "remember when I went climbing?"
+            recollection.diary = store.journal
+                .map { ($0, MemoryStore.cosine(vector, $0.vector)) }
+                .filter { $0.1 >= Self.diaryRelevant }
+                .sorted { $0.1 > $1.1 }.prefix(2).map(\.0)
         }
-        return Recollection(profile: profile, notes: found, excerpt: excerpt)
+        return recollection
     }
 
     /// The best few notes for `text` and their scores, relevant or not: for measuring.
@@ -129,6 +144,16 @@ public actor Memory {
                 try save()
             }
         }
+        // Weeks that are over, in a few lines each.
+        let done = Set(store.weeks.map(\.week))
+        for (week, entries) in Journal.weeksToSum(store.journal, done: done) {
+            try Task.checkCancellation()
+            let diary = entries.map { "- \($0.at.formatted(.dateTime.weekday(.wide))): \($0.text)" }.joined(separator: "\n")
+            let answer = try await brain.write(Journal.weekInstructions, "The week's diary:\n" + diary)
+            guard let text = Journal.entry(from: answer) else { continue }
+            store.summarise(WeekSummary(week: week, text: text, vector: await embedder.embed([text])[0]))
+            try save()
+        }
         return added
     }
 
@@ -176,7 +201,7 @@ public actor Memory {
 
     /// The answer to asking what's coming up or what they did.
     public func agenda(_ ask: Agenda.Ask) -> String {
-        Agenda.answer(ask, happenings: store.calendar, journal: store.journal)
+        Agenda.answer(ask, happenings: store.calendar, journal: store.journal, weeks: store.weeks)
     }
 
     /// It asked them about note `id`: not again.

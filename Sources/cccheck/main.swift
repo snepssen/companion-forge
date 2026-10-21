@@ -626,6 +626,40 @@ let older = #"{"notes":[],"written":{"a":3}}"#
 check("memory saved before the journal still loads",
       (try? JSONDecoder().decode(MemoryStore.self, from: Data(older.utf8)))?.next(in: "a") == 3)
 
+// MARK: weeks
+
+var mondays = utc
+mondays.firstWeekday = 2
+let entryOn = { (day: Int, text: String) in
+    JournalEntry(at: utc.date(from: DateComponents(year: 2026, month: 10, day: day, hour: 20))!, session: "s", turns: 0...1,
+                 text: text, vector: [])
+}
+let threeWeeks = [entryOn(6, "They started a new job at the studio."), entryOn(9, "They were tired but happy."),
+                  entryOn(14, "They had a rough week with their boss."), entryOn(20, "They went climbing with Sam.")]
+let toSum = Journal.weeksToSum(threeWeeks, done: [], now: wednesday, calendar: mondays)
+check("weeks that are over get summed up, this one waits", toSum.count == 2 && toSum[0].entries.count == 2
+    && toSum[1].entries.first?.text == "They had a rough week with their boss.")
+check("and a week already summed isn't again", Journal.weeksToSum(threeWeeks, done: [toSum[0].week], now: wednesday,
+                                                                   calendar: mondays).count == 1)
+var summed = MemoryStore()
+summed.summarise(WeekSummary(week: toSum[1].week, text: "A rough week: their boss was on their case.", vector: []))
+check("last week is how they've been lately", summed.lately(now: wednesday)?.text.contains("rough week") == true
+    && summed.lately(now: wednesday.addingTimeInterval(40 * 86_400)) == nil)
+summed.write(threeWeeks[3])
+check("lately is last week, then the diary since", summed.lately(now: wednesday, entries: 2)
+    .map { $0.contains("Last week: A rough week") && $0.contains("Since then: They went climbing") } == true)
+check("the transcript's Person is they", Journal.entry(from: "Person said they felt better. Later the person laughed.")
+    == "They said they felt better. Later they laughed.")
+check("a diary entry written twice is kept once", Journal.entry(from: "They had a rough day.\n\n***\n\n**Diary Entry:** They had a rough day.")
+    == "They had a rough day.")
+check("and it's in what it always knows", Recollection(lately: "A rough week.").knowing?.contains("A rough week.") == true)
+let lately = Agenda.answer(Agenda.ask(in: "How have I been lately?", now: wednesday, calendar: utc)!, happenings: [],
+                           journal: threeWeeks, weeks: summed.weeks, calendar: utc)
+check("how have I been lately: the weeks, then the days since", lately.contains("rough week: their boss")
+    && lately.contains("climbing") && !lately.contains("They had a rough week with their boss."))
+check("remembering something: the diary entry comes to mind",
+      Recollection(diary: [threeWeeks[3]]).reminder(now: wednesday)?.contains("climbing") == true)
+
 // MARK: hello
 
 check("the very first time: hello, and their name", Greeting.cue(last: nil)?.contains("very first time") == true)

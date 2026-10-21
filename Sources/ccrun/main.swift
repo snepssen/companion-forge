@@ -15,6 +15,7 @@
 //   ccrun --window <file.png>   the app's window, loaded as the app loads it
 //   ccrun --memory              earlier conversations written up, then recalled
 //   ccrun --journal             a conversation written up into notes, diary and calendar, then asked about
+//   ccrun --weeks               three weeks of conversations into diary and week summaries, then asked about
 //   ccrun --icon <file.png>     the app icon, 1024 px
 //   ccrun --spatial-check       the spatial voice's audio graph, run silently
 //   ccrun --lipsync "text"      the mouth from the voice's phoneme timings, beside the spelling estimate
@@ -201,6 +202,48 @@ func recall() async throws {
 /// the notes, the diary entry and the calendar it leaves, then asked what's
 /// coming up, what they did, and told something ordinary while tomorrow's
 /// birthday is due a mention.
+/// Conversations over three weeks written up into diary entries and the
+/// diary into week summaries, then asked how they've been lately and about
+/// something from back then.
+func weeksRun() async throws {
+    let folder = FileManager.default.temporaryDirectory.appending(path: "ccrun-weeks-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let conversations = folder.appending(path: "Conversations")
+    let model = ModelCatalog.model(option("--model")) ?? ModelCatalog.recommended
+    guard let directory = ModelStore.location(of: model) else { print("\(model.name) isn't downloaded"); return }
+    let brain = try await Brain(model: model, at: directory)
+    let memory = Memory(file: folder.appending(path: "memory.json"), conversations: conversations,
+                        embedder: try await Embedder.load())
+    let earlier: [(daysAgo: Double, turns: [String])] = [
+        (12, ["First day at the new studio today! Everyone's really nice.", "I'm designing a poster for a jazz festival."]),
+        (10, ["Went to see a gig with Sam last night, this tiny band called Moth Radio. So good.", "My ears are still ringing."]),
+        (8, ["Rough day. The client hated the poster and my boss sided with them.", "I stayed late redoing it. I'm exhausted."]),
+        (2, ["Feeling better. The new poster got approved!", "Sam's taking me climbing on Saturday to celebrate."]),
+    ]
+    for conversation in earlier {
+        let started = Date() - conversation.daysAgo * 86_400
+        let log = try ConversationLog(directory: conversations, started: started)
+        for (index, text) in conversation.turns.enumerated() {
+            try log.append(Turn(.person, text, at: started + Double(index) * 60))
+            try log.append(Turn(.companion, "Mm.", at: started + Double(index) * 60 + 20))
+        }
+    }
+    try await memory.writeUp(with: brain)
+    let store = await memory.store
+    print("diary:"); for entry in store.journal { print("  \(entry.at.formatted(date: .abbreviated, time: .omitted)): \(entry.text)") }
+    print("weeks:"); for week in store.weeks { print("  from \(week.week.formatted(date: .abbreviated, time: .omitted)): \(week.text)") }
+    print("lately: \(await memory.standing().lately ?? "-")")
+    var conversation: [Turn] = []
+    for line in ["Hey.", "How have I been lately, do you think?", "Remember that band I saw with Sam? What were they called?"] {
+        conversation.append(Turn(.person, line))
+        var recollection = await memory.recollect(for: line)
+        if let ask = Agenda.ask(in: line) { recollection.aside = await memory.agenda(ask) }
+        let reply = try await brain.reply(to: conversation, remembering: recollection) { _ in }
+        conversation.append(Turn(.companion, reply))
+        print("you: \(line)\n  it: \(reply)")
+    }
+}
+
 func journalRun() async throws {
     let folder = FileManager.default.temporaryDirectory.appending(path: "ccrun-journal-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: folder) }
@@ -773,6 +816,11 @@ if CommandLine.arguments.contains("--seal-check") {
     print("sealed: notes \(await sealed.store.notes.count), reopened \(await again.store.notes.count), locked \(await again.locked)")
     print("logs after: \(after) turns; anything left in the clear: \(clear)")
     print("without the key: locked \(await unkeyed.locked), notes \(await unkeyed.store.notes.count)")
+    exit(0)
+}
+
+if CommandLine.arguments.contains("--weeks") {
+    try await weeksRun()
     exit(0)
 }
 

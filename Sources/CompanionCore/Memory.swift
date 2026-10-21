@@ -65,10 +65,11 @@ public struct MemoryStore: Codable, Sendable, Equatable {
     /// Its diary of their days, and the calendar of what they mentioned.
     public private(set) var journal: [JournalEntry] = []
     public private(set) var calendar: [Happening] = []
+    public private(set) var weeks: [WeekSummary] = []
 
     public init() {}
 
-    enum CodingKeys: String, CodingKey { case notes, written, journal, calendar }
+    enum CodingKeys: String, CodingKey { case notes, written, journal, calendar, weeks }
 
     /// Memory saved before there was a journal or a calendar still loads.
     public init(from decoder: Decoder) throws {
@@ -77,6 +78,28 @@ public struct MemoryStore: Codable, Sendable, Equatable {
         written = try container.decodeIfPresent([String: Int].self, forKey: .written) ?? [:]
         journal = try container.decodeIfPresent([JournalEntry].self, forKey: .journal) ?? []
         calendar = try container.decodeIfPresent([Happening].self, forKey: .calendar) ?? []
+        weeks = try container.decodeIfPresent([WeekSummary].self, forKey: .weeks) ?? []
+    }
+
+    public mutating func summarise(_ week: WeekSummary) {
+        weeks.removeAll { $0.week == week.week }
+        weeks.append(week)
+    }
+
+    /// How their last week went, if it was lately: for every reply.
+    public func lately(now: Date = Date()) -> WeekSummary? {
+        weeks.filter { now.timeIntervalSince($0.week) < 21 * 86_400 }.max { $0.week < $1.week }
+    }
+
+    /// How things have been: the last week summed up, and the diary since,
+    /// newest last. Told only last week's, it asked about a rough patch the
+    /// diary already said was over.
+    public func lately(now: Date = Date(), entries: Int = 2) -> String? {
+        let week: WeekSummary? = lately(now: now)
+        let since = week.map { $0.week + 7 * 86_400 } ?? now - 7 * 86_400
+        let recent = journal.filter { $0.at >= since && $0.at <= now }.sorted { $0.at < $1.at }.suffix(entries)
+        let parts = (week.map { ["Last week: \($0.text)"] } ?? []) + recent.map { "Since then: \($0.text)" }
+        return parts.isEmpty ? nil : parts.joined(separator: " ")
     }
 
     public mutating func write(_ entry: JournalEntry) { journal.append(entry) }
@@ -153,6 +176,7 @@ public struct MemoryStore: Codable, Sendable, Equatable {
         written = [:]
         journal = []
         calendar = []
+        weeks = []
     }
 
     /// The lasting notes, newest first: what it knows about them, always.
@@ -225,6 +249,10 @@ public struct Recollection: Sendable, Equatable {
     public var excerpt: [Turn]
     /// What was done with the memory just now, at their asking.
     public var aside: String?
+    /// How their last week went, from the diary.
+    public var lately: String?
+    /// Diary entries that came to mind, when they asked about the past.
+    public var diary: [JournalEntry] = []
     /// Something to ask them how it went, if it fits.
     public var checkIn: Note?
     /// Something on their calendar to remind them of, and its day.
@@ -232,7 +260,9 @@ public struct Recollection: Sendable, Equatable {
     public var comingDay: Date?
 
     public init(profile: [Note] = [], notes: [Note] = [], excerpt: [Turn] = [], aside: String? = nil,
-                checkIn: Note? = nil) {
+                checkIn: Note? = nil, lately: String? = nil, diary: [JournalEntry] = []) {
+        self.lately = lately
+        self.diary = diary
         self.profile = profile
         self.notes = notes
         self.excerpt = excerpt
@@ -242,22 +272,32 @@ public struct Recollection: Sendable, Equatable {
 
     public var isEmpty: Bool {
         profile.isEmpty && notes.isEmpty && excerpt.isEmpty && aside == nil && checkIn == nil && coming == nil
+            && lately == nil && diary.isEmpty
     }
 
     /// For the instructions: what it knows about them.
     public var knowing: String? {
-        guard !profile.isEmpty else { return nil }
-        return "What you know about them, from earlier conversations:\n"
-            + profile.map { "- \($0.text)" }.joined(separator: "\n")
+        var parts: [String] = []
+        if !profile.isEmpty {
+            parts.append("What you know about them, from earlier conversations:\n"
+                + profile.map { "- \($0.text)" }.joined(separator: "\n"))
+        }
+        if let lately { parts.append("How things have been for them lately, from your diary: \(lately)") }
+        return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
     }
 
     /// Put before what they just said: what came to mind.
     public func reminder(now: Date = Date()) -> String? {
-        guard !notes.isEmpty || !excerpt.isEmpty || aside != nil || checkIn != nil || coming != nil else { return nil }
+        guard !notes.isEmpty || !excerpt.isEmpty || aside != nil || checkIn != nil || coming != nil || !diary.isEmpty
+        else { return nil }
         var lines: [String] = []
         if let aside { lines.append("(\(aside))") }
         if let checkIn { lines.append(CheckIn.prompt(checkIn, now: now)) }
         if let coming, let comingDay { lines.append(Agenda.prompt(comingDay, coming, now: now)) }
+        if !diary.isEmpty {
+            lines.append("(From your diary, if it helps:)")
+            lines += diary.map { "- \(Remembering.when($0.at, now: now)): \($0.text)" }
+        }
         guard !notes.isEmpty || !excerpt.isEmpty else { return lines.joined(separator: "\n") }
         lines.append("(This came to mind from earlier conversations. Use it if it helps; don't recite it.)")
         lines += notes.map { "- \(Remembering.when($0.at, now: now)): \($0.text)" }

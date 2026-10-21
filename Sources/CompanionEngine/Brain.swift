@@ -80,8 +80,8 @@ public actor Brain {
         let shown = Array(next.suffix(Window.shown(next.count)).dropLast())
         guard !shown.isEmpty else { return }
         let prompt = try context.tokenizer.applyChatTemplate(
-            messages: Prompts.messages(shown, remembering: Recollection(profile: recollection.profile), personality: personality,
-                                       windowed: false),
+            messages: Prompts.messages(shown, remembering: Recollection(profile: recollection.profile, lately: recollection.lately),
+                                       personality: personality, windowed: false),
             tools: nil, additionalContext: ["enable_thinking": false])
         let fresh = try cache.prepare(for: prompt)
         guard fresh.count > 1 else { return }
