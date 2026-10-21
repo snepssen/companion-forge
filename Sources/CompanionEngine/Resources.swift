@@ -53,6 +53,11 @@ public enum Resources {
     /// voice-core's, the data every snepssen voice was trained with.
     public static var espeakData: URL? { EspeakData.directory }
 
+    /// The offline dictionary (scripts/build-dictionary.sh).
+    public static var dictionary: URL? {
+        first(bundled("dictionary.sqlite"), checkout.appending(path: "models/dictionary.sqlite"))
+    }
+
     public static var vad: URL? {
         first(bundled("silero_vad.onnx"), checkout.appending(path: "models/silero_vad.onnx"),
               translateCore.appending(path: "models/silero_vad.onnx"))

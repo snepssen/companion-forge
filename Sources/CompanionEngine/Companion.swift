@@ -103,6 +103,7 @@ public final class Companion {
     /// it talks; kept between presses of Talk while the app is open.
     private var echoLevel = EchoLevel()
     private var memory: Memory?
+    private var dictionary: Dictionary?
     private var writing: Task<Void, Never>?
     private var idleWatch: Task<Void, Never>?
     /// When anything was last said, by either of them.
@@ -146,6 +147,7 @@ public final class Companion {
                 }
             }
             memory = Memory(embedder: embedder)
+            dictionary = Resources.dictionary.flatMap(Dictionary.init(file:))
             notes = await memory?.notes ?? []
             try await loadBrain()
             writeUp()
@@ -223,7 +225,8 @@ public final class Companion {
             let log = try? ConversationLog(directory: Resources.conversations)
             let (stream, continuation) = AsyncStream<LoopEvent>.makeStream()
             let loop = Loop(audio: audio, vad: try SileroVAD(model: vadURL), recognizer: recognizer, brain: brain,
-                            voice: voice, memory: memory, attention: attention, log: log, timing: timing,
+                            voice: voice, memory: memory, attention: attention, dictionary: dictionary, log: log,
+                            timing: timing,
                             echoLevel: echoLevel,
                             emit: Self.forward(to: continuation))
             lastActivity = Duplex.now

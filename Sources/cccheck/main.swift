@@ -412,6 +412,14 @@ check("a sentence without quotes is one part", Languages.segments("Good morning!
 let twoSentences = Phonemes.layout(sentences: [["a"], ["o", "?"]]) { $0 == "?" ? 0 : 1 }
 check("the polyglot layout runs per sentence", twoSentences == ["^", "_", "a", "_", "$", "^", "_", "o", "_", "$"])
 
+check("how do you say… in…", Lookup.request(in: "Good morning. How can I say breakfast in Romanian?") == .translate("breakfast", into: "ro"))
+check("what's… in…", Lookup.request(in: "What's thank you in Hungarian?") == .translate("thank you", into: "hu"))
+check("the L word for…", Lookup.request(in: "What is the Japanese word for cat?") == .translate("cat", into: "ja"))
+check("translate… into…", Lookup.request(in: "Translate \"good night\" into Swedish.") == .translate("good night", into: "sv"))
+check("what does… mean", Lookup.request(in: "What does köszönöm mean?") == .meaning("köszönöm"))
+check("not every question is a lookup", Lookup.request(in: "What's the weather like?") == nil
+    && Lookup.request(in: "What is it like in Japan?") == nil && Lookup.request(in: "How are you?") == nil)
+
 // MARK: motion
 
 let gaze = Gaze()

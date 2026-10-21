@@ -25,6 +25,8 @@ targets:
         buildPhase: resources
       - path: Resources/silero_vad.onnx
         buildPhase: resources
+      - path: Resources/dictionary.sqlite
+        buildPhase: resources
     dependencies:
       - package: CompanionPackage
         product: CompanionUI

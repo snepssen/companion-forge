@@ -483,8 +483,11 @@ func ask(_ lines: [String]) async throws {
     let model = ModelCatalog.model(option("--model")) ?? ModelCatalog.recommended
     guard let directory = ModelStore.location(of: model) else { print("\(model.name) isn't downloaded"); return }
     let brain = try await Brain(model: model, at: directory)
+    let dictionary = CommandLine.arguments.contains("--no-dictionary") ? nil : Resources.dictionary.flatMap(Dictionary.init(file:))
     for line in lines {
-        let reply = try await brain.reply(to: [Turn(.person, line)]) { _ in }
+        let found = dictionary?.aside(for: line)
+        if let found { print("  dictionary: \(found)") }
+        let reply = try await brain.reply(to: [Turn(.person, line)], remembering: Recollection(aside: found)) { _ in }
         print("you: \(line)\n  it: \(reply)")
     }
 }

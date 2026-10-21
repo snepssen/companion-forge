@@ -94,6 +94,7 @@ public actor Loop {
     private let log: ConversationLog?
     private let memory: Memory?
     private let attention: AttentionSense?
+    private let dictionary: Dictionary?
     private let emit: @Sendable (LoopEvent) -> Void
     private var taker: TurnTaker
     private var history: [Turn] = []
@@ -111,7 +112,8 @@ public actor Loop {
     static let ringing = 0.3
 
     public init(audio: any AudioIO, vad: SileroVAD, recognizer: Recognizer, brain: Brain, voice: Voice,
-                memory: Memory? = nil, attention: AttentionSense? = nil, log: ConversationLog?,
+                memory: Memory? = nil, attention: AttentionSense? = nil, dictionary: Dictionary? = nil,
+                log: ConversationLog?,
          timing: PauseModel, echoLevel: EchoLevel = EchoLevel(), emit: @escaping @Sendable (LoopEvent) -> Void) {
         self.audio = audio
         self.vad = vad
@@ -121,6 +123,7 @@ public actor Loop {
         self.log = log
         self.memory = memory
         self.attention = attention
+        self.dictionary = dictionary
         self.emit = emit
         taker = TurnTaker(model: timing)
         self.echoLevel = echoLevel
@@ -238,6 +241,10 @@ public actor Loop {
             var recollection = await memory?.recollect(for: text) ?? Recollection()
             if let memory, let command = MemoryCommand.parse(text) {
                 (reply.memory, recollection.aside) = await plan(command, with: memory)
+            }
+            // A word to translate or explain: the dictionary's answer, not the model's guess.
+            if let found = dictionary?.aside(for: text) {
+                recollection.aside = [recollection.aside, found].compactMap { $0 }.joined(separator: " ")
             }
             guard reply.id == id, !Task.isCancelled else { return }
             reply.times.recalled = Duplex.now - reply.started

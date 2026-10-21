@@ -18,6 +18,7 @@ PRODUCTS="$DERIVED/Build/Products/$CONF"
 # else its latest release (scripts/polyglot-voice.sh).
 VOICE="$("$ROOT/scripts/polyglot-voice.sh")"
 "$ROOT/scripts/fetch-models.sh"
+"$ROOT/scripts/build-dictionary.sh"
 
 echo "checks…"
 swift run -q cccheck
@@ -51,6 +52,7 @@ cp "$VOICE" "$APP/Contents/Resources/snepssen-polyglot.onnx"
 cp "$VOICE.json" "$APP/Contents/Resources/snepssen-polyglot.onnx.json"
 echo "voice: $VOICE"
 cp "$ROOT/models/silero_vad.onnx" "$APP/Contents/Resources/"
+cp "$ROOT/models/dictionary.sqlite" "$APP/Contents/Resources/"
 cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/"  # ccrun --icon, then iconutil
 
 cat > "$APP/Contents/Info.plist" <<PLIST

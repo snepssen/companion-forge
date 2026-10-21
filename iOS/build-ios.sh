@@ -16,11 +16,12 @@ REPO="$(cd .. && pwd)"
 VOICE="$("$REPO/scripts/polyglot-voice.sh")"
 
 "$REPO/scripts/fetch-models.sh"
+"$REPO/scripts/build-dictionary.sh"
 mkdir -p Resources
 rm -f Resources/en_US-snepssen-medium.onnx Resources/en_US-snepssen-medium.onnx.json
 cp "$VOICE" Resources/snepssen-polyglot.onnx
 cp "$VOICE.json" Resources/snepssen-polyglot.onnx.json
-cp "$REPO/models/silero_vad.onnx" Resources/
+cp "$REPO/models/silero_vad.onnx" "$REPO/models/dictionary.sqlite" Resources/
 echo "voice: $VOICE"
 
 xcodegen generate --quiet
