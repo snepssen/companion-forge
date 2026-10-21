@@ -32,11 +32,13 @@ public final class Voice: @unchecked Sendable {
     /// English with voice-forge's reading and lift, where its voice is here.
     private let expressive: ExpressiveVoice?
 
-    public init(model: URL, espeakData: URL) throws {
+    /// `expressive: false` keeps English on this voice too, without
+    /// voice-forge's reading.
+    public init(model: URL, espeakData: URL, expressive: Bool = true) throws {
         self.model = try PiperModel(model: model)
         self.espeakData = espeakData
         sampleRate = self.model.sampleRate
-        let expressive = ExpressiveVoice()
+        let expressive = expressive ? ExpressiveVoice() : nil
         self.expressive = expressive?.sampleRate == sampleRate ? expressive : nil
         _ = try phonemizer(self.model.config.espeak.voice)
     }

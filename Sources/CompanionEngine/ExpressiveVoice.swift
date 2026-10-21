@@ -17,9 +17,14 @@ public final class ExpressiveVoice: @unchecked Sendable {
     private let engine: VoiceEngine
     public var sampleRate: Double { engine.sampleRate }
 
-    public init?() {
-        guard let profile = VoiceEngine.bundledProfiles().first,
-              let engine = try? VoiceEngine(profile: profile), engine.directsTiming
+    /// voice-forge's bundled voice, or the one at `model` (with its config
+    /// beside it as `.onnx.json`). nil unless it can be told its timing.
+    public init?(model: URL? = nil) {
+        let profile = model.map {
+            VoiceProfile(name: $0.deletingPathExtension().lastPathComponent, modelURL: $0,
+                         configURL: $0.appendingPathExtension("json"), isBundled: false)
+        } ?? VoiceEngine.bundledProfiles().first
+        guard let profile, let engine = try? VoiceEngine(profile: profile), engine.directsTiming
         else { return nil }
         self.engine = engine
     }

@@ -584,6 +584,73 @@ func rise(_ lines: [String], semitones: [Double], out: URL) async throws {
     print("-> \(out.appending(path: "rise.html").path)")
 }
 
+// ccrun --wav "a | b" --out <folder> [--plain]: each line to a WAV, through the
+// app's voice (--plain: the polyglot voice for English too, without voice-forge).
+if let lines = option("--wav"), let out = option("--out") {
+    guard let voiceURL = Resources.voice, let espeak = Resources.espeakData else { print("no voice"); exit(1) }
+    let voice = try Voice(model: voiceURL, espeakData: espeak, expressive: !CommandLine.arguments.contains("--plain"))
+    let folder = URL(filePath: out)
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    for (n, line) in lines.split(separator: "|").map({ $0.trimmingCharacters(in: .whitespaces) }).enumerated() {
+        try wav(voice.speak(line), rate: voice.sampleRate).write(to: folder.appending(path: String(format: "%02d.wav", n + 1)))
+    }
+    exit(0)
+}
+
+/// The same lines through each voice there is, and the Rode voice's
+/// questions raised both ways: a page to hear them side by side.
+func compareVoices(_ lines: [String], rode: URL, out: URL) throws {
+    guard let voiceURL = Resources.voice, let espeak = Resources.espeakData,
+          let forge = ExpressiveVoice(), let rodeVoice = ExpressiveVoice(model: rode) else { print("a voice is missing"); return }
+    let polyglot = try Voice(model: voiceURL, espeakData: espeak, expressive: false)
+    try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+    func cell(_ samples: [Float]?, rate: Double) -> String {
+        guard let samples else { return "<td class=none>—</td>" }
+        let data = wav(samples, rate: rate)
+        return "<td><audio controls preload=\"none\" src=\"data:audio/wav;base64,\(data.base64EncodedString())\"></audio></td>"
+    }
+    var rows = ""
+    for line in lines {
+        let delivery = Delivery.of(line)
+        let take = try rodeVoice.take(line, delivery: delivery)
+        let rises = take.rising != nil
+        rows += "<tr><th>\(line)</th>" + cell(try polyglot.speak(line), rate: polyglot.sampleRate)
+            + cell(try forge.take(line, delivery: delivery).samples, rate: forge.sampleRate)
+            + cell(take.samples, rate: rodeVoice.sampleRate)
+            + cell(rises ? take.raised(by: 3) : nil, rate: rodeVoice.sampleRate)
+            + cell(rises ? take.raised(by: 5) : nil, rate: rodeVoice.sampleRate)
+            + cell(rises ? take.glided(by: 3) : nil, rate: rodeVoice.sampleRate) + "</tr>\n"
+        print(line)
+        fflush(stdout)
+    }
+    let page = """
+    <!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Voice Comparison</title>
+    <style>:root{--bg:#fff;--fg:#1d1d1f;--muted:#6e6e73;--line:#ddd}
+    @media (prefers-color-scheme:dark){:root{--bg:#1c1c1e;--fg:#f2f2f7;--muted:#98989d;--line:#3a3a3c}}
+    body{background:var(--bg);color:var(--fg);font:15px -apple-system,system-ui,sans-serif;margin:16px}
+    p{color:var(--muted);max-width:60em}.wrap{overflow-x:auto}table{border-collapse:collapse}
+    th,td{border-bottom:1px solid var(--line);padding:8px;text-align:left;vertical-align:middle}
+    td.none{color:var(--muted);text-align:center}audio{width:160px}</style>
+    <h1>Voice comparison</h1>
+    <p><b>polyglot</b>: the app's voice before voice-forge. <b>snepssen</b>: voice-forge's bundled voice with its
+    reading (the app's English now). <b>Rode</b>: your installed snepssen-rode voice with the same reading.
+    The last three columns are the Rode take of each yes-or-no question with its ending raised:
+    pitch marks +3 and +5 semitones (length kept), and a +3 glide.</p>
+    <div class="wrap"><table><tr><th></th><th>polyglot</th><th>snepssen</th><th>Rode</th>
+    <th>Rode, marks +3</th><th>Rode, marks +5</th><th>Rode, glide +3</th></tr>\(rows)</table></div>
+    """
+    try page.write(to: out.appending(path: "voices.html"), atomically: true, encoding: .utf8)
+    print("-> \(out.appending(path: "voices.html").path)")
+}
+
+// ccrun --voices "a | b" --rode <model.onnx> --out <folder>
+if let lines = option("--voices"), let rode = option("--rode"), let out = option("--out") {
+    try compareVoices(lines.split(separator: "|").map { $0.trimmingCharacters(in: .whitespaces) },
+                      rode: URL(filePath: rode), out: URL(filePath: out))
+    exit(0)
+}
+
 if let lines = option("--rise"), let out = option("--out") {
     let semitones = (option("--semitones") ?? "2,4,6").split(separator: ",").compactMap { Double($0) }
     try await rise(lines.split(separator: "|").map { $0.trimmingCharacters(in: .whitespaces) },
