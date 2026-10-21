@@ -66,8 +66,7 @@ public actor Brain {
                                             repetitionContextSize: 64, presencePenalty: sampling.presencePenalty,
                                             presenceContextSize: 64)
         return try generate(Prompts.messages(turns, remembering: recollection, personality: personality), cache: &cache,
-                            parameters: parameters,
-                            emit: emit)
+                            parameters: parameters, keepStable: true, emit: emit)
     }
 
     /// Read the conversation so far into the cache before they speak again,
@@ -79,15 +78,53 @@ public actor Brain {
         let next = history + [Turn(.person, "")]
         let shown = Array(next.suffix(Window.shown(next.count)).dropLast())
         guard !shown.isEmpty else { return }
-        let prompt = try context.tokenizer.applyChatTemplate(
-            messages: Prompts.messages(shown, remembering: Recollection(profile: recollection.profile, lately: recollection.lately),
-                                       personality: personality, windowed: false),
-            tools: nil, additionalContext: ["enable_thinking": false])
-        let fresh = try cache.prepare(for: prompt)
-        guard fresh.count > 1 else { return }
-        let logits = context.model(LMInput.Text(tokens: MLXArray(fresh))[text: .newAxis], cache: cache.kv, state: nil).logits
-        eval(logits)
-        cache.settle(prompt)
+        // As the next prompt will be, with a stand-in for what they'll say:
+        // read up to where their words will start.
+        let messages = Prompts.messages(shown + [Turn(.person, Self.standIn)],
+                                        remembering: Recollection(profile: recollection.profile, lately: recollection.lately),
+                                        personality: personality, windowed: false)
+        let prompt = try template(messages)
+        let stable = try stableLength(messages, prompt: prompt)
+        let fresh = try cache.prepare(for: Array(prompt.prefix(stable + 1)))
+        let start = stable + 1 - fresh.count
+        guard stable > start else { return }
+        try prefill(Array(prompt[start..<stable]), cache: &cache)
+        cache.settle(Array(prompt.prefix(stable)))
+        cache.keep(Array(prompt.prefix(stable)))
+    }
+
+    /// What stands in for their words when working out where they start.
+    static let standIn = "§"
+
+    func template(_ messages: [[String: any Sendable]]) throws -> [Int] {
+        // Gemma 4 otherwise reasons aloud: seconds a turn.
+        try context.tokenizer.applyChatTemplate(messages: messages, tools: nil, additionalContext: ["enable_thinking": false])
+    }
+
+    /// How much of `prompt` the next turn's prompt will begin with: all of
+    /// it up to the words of the last message, which come with what came to
+    /// mind and won't be shown that way again. Found by rendering it once
+    /// more with other words there and seeing where the two part.
+    func stableLength(_ messages: [[String: any Sendable]], prompt: [Int]) throws -> Int {
+        guard !messages.isEmpty else { return 0 }
+        var probe = messages
+        probe[probe.count - 1]["content"] = (probe[probe.count - 1]["content"] as? String) == Self.standIn ? "¶" : Self.standIn
+        let other = try template(probe)
+        return zip(prompt, other).prefix { $0 == $1 }.count
+    }
+
+    /// Read `tokens` into the cache, a window at a time, without generating.
+    func prefill(_ tokens: [Int], cache: inout PromptCache) throws {
+        var at = 0
+        while at < tokens.count {
+            try Task.checkCancellation()
+            let chunk = Array(tokens[at..<min(tokens.count, at + 512)])
+            // Only the cache is wanted: evaluating the logits as well works out
+            // the whole vocabulary for every token read, and took four times as long.
+            _ = context.model(LMInput.Text(tokens: MLXArray(chunk))[text: .newAxis], cache: cache.kv, state: nil)
+            eval(cache.kv)
+            at += chunk.count
+        }
     }
 
     /// Notes from a conversation, as `Remembering` asks for them.
@@ -96,14 +133,25 @@ public actor Brain {
                      parameters: GenerateParameters(maxTokens: 320, temperature: 0.2)) { _ in }
     }
 
+    /// `keepStable`: a cache that can't rewind (Gemma's sliding windows)
+    /// keeps a copy of itself where the next turn's prompt will part from
+    /// this one, and starts from there next time instead of from nothing.
     private func generate(_ messages: [[String: any Sendable]], cache: inout PromptCache, parameters: GenerateParameters,
-                          emit: @Sendable (String) -> Void) throws -> String {
-        let prompt = try context.tokenizer.applyChatTemplate(
-            messages: messages, tools: nil,
-            additionalContext: ["enable_thinking": false])  // Gemma 4 otherwise reasons aloud: seconds a turn
+                          keepStable: Bool = false, emit: @Sendable (String) -> Void) throws -> String {
+        let prompt = try template(messages)
         try Task.checkCancellation()
-        let fresh = try cache.prepare(for: prompt)
-        lastPrompt = (fresh.count, prompt.count)
+        var fresh = try cache.prepare(for: prompt)
+        let read = fresh.count
+        if keepStable, cache.cannotRewind {
+            let start = prompt.count - fresh.count
+            let stable = try stableLength(messages, prompt: prompt)
+            if stable > start, stable < prompt.count {
+                try prefill(Array(prompt[start..<stable]), cache: &cache)
+                cache.keep(Array(prompt.prefix(stable)))
+                fresh = Array(prompt[stable...])
+            }
+        }
+        lastPrompt = (read, prompt.count)
         var iterator = try TokenIterator(input: LMInput(tokens: MLXArray(fresh)), model: context.model, cache: cache.kv,
                                          parameters: parameters)
         var produced: [Int] = []
@@ -245,6 +293,21 @@ struct PromptCache {
     mutating func reset() throws {
         kv = try freshCache()
         tokens = []
+        snapshot = nil
+    }
+
+    /// A copy of the cache at a point the next prompt will share, for a
+    /// cache that can't rewind to it.
+    private var snapshot: (tokens: [Int], kv: [KVCache])?
+
+    /// Sliding-window attention (Gemma): once past its window the cache can't
+    /// be trimmed back, so a changed tail can't simply be cut off.
+    var cannotRewind: Bool { kv.contains { $0 is RotatingKVCache } }
+
+    /// Remember the cache as it is, holding exactly `held`.
+    mutating func keep(_ held: [Int]) {
+        guard cannotRewind, kv.first?.offset == held.count else { return }
+        snapshot = (held, kv.map { $0.copy() })
     }
 
     /// Trim back to what `prompt` shares with what is held; returns the part to read.
@@ -256,9 +319,16 @@ struct PromptCache {
         let trim = offset - keep
         if trim > 0 && (!canTrimPromptCache(kv) || trimPromptCache(kv, numTokens: trim) != trim) {
             // Sliding attention can no longer rewind once its ring wraps. A
-            // failed trim must rebuild, not feed a suffix behind stale tokens.
-            try reset()
-            keep = 0
+            // failed trim must rebuild, not feed a suffix behind stale tokens:
+            // from the snapshot when the prompt begins with it, else from nothing.
+            if let snapshot, snapshot.tokens.count < prompt.count, prompt.starts(with: snapshot.tokens) {
+                kv = snapshot.kv.map { $0.copy() }
+                tokens = snapshot.tokens
+                keep = snapshot.tokens.count
+            } else {
+                try reset()
+                keep = 0
+            }
         }
         return Array(prompt[keep...])
     }
