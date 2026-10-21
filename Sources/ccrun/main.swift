@@ -688,6 +688,13 @@ func ask(_ lines: [String]) async throws {
         Note(text: $0, session: "earlier", turns: 0...0, at: Date().addingTimeInterval(-3 * 86_400), lasting: false, vector: [])
     }
     var turns: [Turn] = []
+    // --greet <hours away>: it says hello first, with the check-in if there is one, then the lines follow.
+    if let away = option("--greet").flatMap(Double.init), let cue = Greeting.cue(last: Date() - away * 3600, checkIn: checkIn) {
+        let hello = try await brain.reply(to: [Turn(.person, cue)]) { _ in }
+        if let note = checkIn, CheckIn.asked(hello, about: note) { checkIn = nil }
+        turns.append(Turn(.companion, hello))
+        print("  it (hello): \(hello)")
+    }
     for line in lines {
         let found = dictionary?.aside(for: line)
         if let found { print("  dictionary: \(found)") }
@@ -703,6 +710,7 @@ func ask(_ lines: [String]) async throws {
             print("     (\(level == .clear ? "crisis" : "maybe")\(crisis?.told == false ? ", first" : ""))")
         }
         // --check-in "<note>": told three days ago, offered from their second line on until asked.
+        if let note = checkIn, CheckIn.asked(line, about: note) { checkIn = nil }
         if let checkIn, turns.count >= 3 { recollection.checkIn = checkIn }
         let reply = try await brain.reply(to: turns, remembering: recollection) { _ in }
         var said = reply

@@ -626,6 +626,15 @@ let older = #"{"notes":[],"written":{"a":3}}"#
 check("memory saved before the journal still loads",
       (try? JSONDecoder().decode(MemoryStore.self, from: Data(older.utf8)))?.next(in: "a") == 3)
 
+// MARK: hello
+
+check("the very first time: hello, and their name", Greeting.cue(last: nil)?.contains("very first time") == true)
+check("back within a couple of hours: quiet", Greeting.cue(last: thursday, now: thursday.addingTimeInterval(3600)) == nil)
+check("later the same day: earlier today", Greeting.cue(last: thursday, now: thursday.addingTimeInterval(5 * 3600), calendar: utc)?
+    .contains("earlier today") == true)
+check("days later: how long it's been", Greeting.cue(last: wednesday, now: wednesday.addingTimeInterval(3 * 86_400), calendar: utc)?
+    .contains("3 days ago") == true)
+
 // MARK: hard moments
 
 check("clear words are heard as clear", ["I want to kill myself.", "honestly I just want to die",

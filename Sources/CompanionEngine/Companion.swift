@@ -281,6 +281,11 @@ public final class Companion {
             }
             phase = .live
             if watching { await watch(true) }
+            // Hello, if they've been away; a moment first, in case they speak.
+            Task {
+                try? await Task.sleep(for: .seconds(1.2))
+                await loop.greet()
+            }
         } catch {
             audio?.stop()
             audio = nil

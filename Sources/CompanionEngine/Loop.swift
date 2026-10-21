@@ -298,8 +298,13 @@ public actor Loop {
                     (recollection.coming, recollection.comingDay) = (happening, day)
                     reply.coming = happening
                 } else if let note = await memory.checkIn() {
-                    recollection.checkIn = note
-                    reply.checkIn = note
+                    // Told it already, unasked: caught up.
+                    if CheckIn.asked(text, about: note) {
+                        await memory.checkedIn(note.id)
+                    } else {
+                        recollection.checkIn = note
+                        reply.checkIn = note
+                    }
                 }
             }
             guard reply.id == id, !Task.isCancelled else { return }
@@ -527,6 +532,34 @@ public actor Loop {
         reply.written = true
         say(text, samples, mouth)
         return true
+    }
+
+    /// Say hello as they open it, if they've been away a while: a few words
+    /// from the model, with anything coming up or worth catching up on.
+    /// Quiet if they start talking first.
+    public func greet() async {
+        let last = await memory?.lastTalked()
+        let coming = await memory?.ahead()
+        let checkIn = coming == nil ? await memory?.checkIn() : nil
+        guard let cue = Greeting.cue(last: last, checkIn: checkIn, coming: coming), taker.phase == .waiting else { return }
+        let recollection = Recollection(profile: await memory?.profile ?? [])
+        emit(.mood(.thinking))
+        let brain = brain
+        guard let text = try? await brain.reply(to: [Turn(.person, cue)], remembering: recollection) { _ in },
+              !text.isEmpty, taker.phase == .waiting
+        else {
+            emit(.mood(.idle))
+            return
+        }
+        let greeting = text.split(separator: "\n").joined(separator: " ")
+        guard await interject(greeting) else { emit(.mood(.idle)); return }
+        caughtUp = turnCount
+        if let happening = coming?.happening, CheckIn.mentions(greeting, happening.text) {
+            await memory?.reminded(happening.id)
+        }
+        if let note = checkIn, CheckIn.asked(greeting, about: note) {
+            await memory?.checkedIn(note.id)
+        }
     }
 
     /// Have the model read the conversation so far while they talk.

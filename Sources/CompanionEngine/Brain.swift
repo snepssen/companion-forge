@@ -202,7 +202,10 @@ enum Prompts {
         for turn in windowed ? Array(turns.suffix(Window.shown(turns.count))) : turns {
             let role = turn.speaker == .person ? "user" : "assistant"
             let text = turn.interrupted ? turn.text + "—" : turn.text
-            if messages.count == 1 && turn.speaker == .companion { continue }  // the first must be theirs
+            // The first must be theirs: before a greeting, that they opened it.
+            if messages.count == 1 && turn.speaker == .companion {
+                messages.append(["role": "user", "content": Greeting.opened])
+            }
             if turn.speaker == previous, let last = messages.last?["content"] as? String {
                 messages[messages.count - 1]["content"] = last + " " + text
             } else {

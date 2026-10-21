@@ -150,6 +150,16 @@ public actor Memory {
         return store.recall(what, vector: vector, limit: 1, lasting: true).first?.note
     }
 
+    /// When they last talked: the last turn of the newest log. nil if never.
+    public func lastTalked() -> Date? {
+        let logs = ((try? FileManager.default.contentsOfDirectory(at: conversations, includingPropertiesForKeys: nil)) ?? [])
+            .filter { $0.pathExtension == "jsonl" }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+        for log in logs.reversed() {
+            if let last = (try? ConversationLog.read(log, sealer: sealer))?.last { return last.at }
+        }
+        return nil
+    }
+
     /// Something to catch up on now, if anything has fallen due.
     public func checkIn(now: Date = Date()) -> Note? { CheckIn.pick(store.notes, now: now) }
 
