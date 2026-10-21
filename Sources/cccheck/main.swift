@@ -507,6 +507,95 @@ var busy = TurnTaker()
 _ = busy.tick(at: 0.1, speech: true, probability: 0.9)
 check("but not over somebody", !busy.speakUnprompted(at: 0.2))
 
+// MARK: dance
+
+// Music at 120 beats a minute: a kick each beat (a 55 Hz thump, falling
+// away), a hi-hat between, and a little noise. And speech-like bursts at
+// irregular times, for something that isn't a beat.
+/// A little noise that comes out the same every run: position-hashed.
+func hiss(_ i: Int, _ salt: UInt32) -> Float {
+    var h = UInt32(truncatingIfNeeded: i) &* 2_654_435_761 ^ salt
+    h ^= h >> 15
+    h = h &* 2_246_822_519
+    h ^= h >> 13
+    return Float(h >> 8) / Float(1 << 24) - 0.5
+}
+let musicRate = 16_000.0
+/// A 55 Hz thump at each of `kicks`, falling away, with a hiss between
+/// beats and a little noise throughout.
+func drums(seconds: Double, kicks: [Double]) -> [Float] {
+    var out = (0..<Int(seconds * musicRate)).map { i in
+        let t = Double(i) / musicRate
+        let sinceHat = (t + 0.25).truncatingRemainder(dividingBy: 0.5)
+        return hiss(i, 1) * Float(exp(-sinceHat * 60)) * 0.3 + hiss(i, 2) * 0.01
+    }
+    for kick in kicks {
+        let start = Int(kick * musicRate)
+        for j in 0..<max(0, min(Int(0.3 * musicRate), out.count - start)) {
+            let t = Double(j) / musicRate
+            out[start + j] += Float(sin(2 * Double.pi * 55 * t) * exp(-t * 18)) * 0.5
+        }
+    }
+    return out
+}
+/// The detector and a dance, fed a track in blocks as the microphone would.
+func listen(_ track: [Float], dance: inout Dance) -> [Double] {
+    var detector = KickDetector()
+    var kicks: [Double] = []
+    for start in stride(from: 0, to: track.count, by: 512) {
+        let heard = detector.hear(Array(track[start..<min(track.count, start + 512)]), at: Double(start) / musicRate)
+        kicks += heard.kicks
+        dance.hear(heard)
+    }
+    return kicks
+}
+let steady = Array(stride(from: 0.0, to: 10, by: 0.5))
+var dance = Dance(pattern: .infinity)
+let heardKicks = listen(drums(seconds: 10, kicks: steady), dance: &dance)
+let onBeat = heardKicks.filter { k in abs(k - (k / 0.5).rounded() * 0.5) < 0.04 }
+check("kicks are heard on the beat, and only there", heardKicks.count >= 16 && onBeat.count == heardKicks.count)
+check("and give the tempo: half a second a beat", abs((dance.beat(at: 10) ?? 0) - 0.5) < 0.02)
+var skipping = Dance()
+_ = listen(drums(seconds: 10, kicks: steady.enumerated().filter { $0.offset % 4 != 3 }.map(\.element)), dance: &skipping)
+check("kicks skipping beats still keep the beat", abs((skipping.beat(at: 10) ?? 0) - 0.5) < 0.02)
+var talking = Dance()
+let thumps = [0.2, 0.51, 1.27, 1.49, 2.6, 2.86, 4.1, 4.4, 4.62, 5.9, 6.35, 7.3, 7.52, 8.8, 9.1, 9.6]
+_ = listen(drums(seconds: 10, kicks: thumps).enumerated().map { i, x in
+    // No hi-hat either: just the thumps and a little noise.
+    let t = Double(i) / musicRate
+    return x - hiss(i, 1) * Float(exp(-(t + 0.25).truncatingRemainder(dividingBy: 0.5) * 60)) * 0.3
+}, dance: &talking)
+check("speech's irregular thumps are no beat", talking.beat(at: 10) == nil && talking.at(10) == nil)
+
+let corners = (0..<4).map { dance.place(dance.angle($0)) }
+func atCorner(_ step: (point: Point, amount: Double)?) -> Bool {
+    step.map { step in corners.contains { abs($0.x - step.point.x) < 0.08 && abs($0.y - step.point.y) < 0.08 } } ?? false
+}
+// Each move lands as the next kick is due: the kicks were heard about a
+// hundredth of a second after their thumps began.
+let lastKick = heardKicks.last ?? 0
+check("on the beat it is at one of its four points", atCorner(dance.at(lastKick)))
+check("and on its way to the next between beats", !atCorner(dance.at(lastKick + 0.25)))
+check("arriving as the next kick is due",
+      atCorner(dance.at(lastKick + 0.5)) && dance.at(lastKick + 0.5)?.point != dance.at(lastKick)?.point)
+check("an infinity's four points are its corners, through the middle between",
+      Set(corners.map { "\(($0.x > 0 ? 1 : -1)),\(($0.y > 0 ? 1 : -1))" }).count == 4
+        && abs(dance.place((dance.angle(0) + dance.angle(1)) / 2).x) < 1e-9)
+var offbeat = dance
+offbeat.kick(at: lastKick + 0.25)
+check("a kick between beats is let pass", offbeat.at(lastKick + 0.4)?.point == dance.at(lastKick + 0.4)?.point)
+check("it stops dancing a while after the music does", dance.at(lastKick + 0.5)?.amount == 1 && dance.at(lastKick + 6) == nil)
+var nodding = Dance(pattern: .nod)
+let nodKicks = listen(drums(seconds: 8, kicks: steady), dance: &nodding)
+let ups = [nodKicks.last ?? 0, (nodKicks.last ?? 0) + 0.5].compactMap { nodding.at($0)?.point.y }
+check("a nod goes up and down on alternate beats", ups.count == 2 && abs(ups[0] + ups[1]) < 0.1 && abs(ups[0]) > 0.9)
+
+var fast = Dance()
+let fastKicks = listen(drums(seconds: 10, kicks: Array(stride(from: 0.0, to: 10, by: 0.36))), dance: &fast)
+check("to fast music (167 a minute) it moves every other beat",
+      abs((fast.beat(at: 10) ?? 0) - 0.36) < 0.02 && Dance.step(0.36) == 0.72 && Dance.step(0.5) == 0.5
+        && fastKicks.count > 20)
+
 // MARK: log
 
 let folder = FileManager.default.temporaryDirectory.appending(path: "cccheck-\(UUID().uuidString)")

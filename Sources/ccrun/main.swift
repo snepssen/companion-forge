@@ -19,6 +19,7 @@
 //   ccrun --lipsync "text"      the mouth from the voice's phoneme timings, beside the spelling estimate
 //   ccrun --say "text" [--hint ro]  out loud, each part in its language
 //   ccrun --intonation "words" [--quiet]  as statement, question and exclamation: pitch measured, then heard
+//   ccrun --beats <audio file>  the kicks the face would dance to, and when it would
 //   ccrun --wav "a | b" --out <folder> [--plain]  each line to a WAV (--plain: the polyglot voice for English too)
 //   ccrun --recall              how the embedder ranks notes, for the thresholds
 //   ccrun --long [--anticipate] a long conversation: prompt re-reading and first-word times
@@ -536,6 +537,53 @@ if let lines = option("--wav"), let out = option("--out") {
     for (n, line) in lines.split(separator: "|").map({ $0.trimmingCharacters(in: .whitespaces) }).enumerated() {
         try wav(voice.speak(line), rate: voice.sampleRate).write(to: folder.appending(path: String(format: "%02d.wav", n + 1)))
     }
+    exit(0)
+}
+
+/// A music file through the kick detector as the microphone would hear it
+/// (mono, 16 kHz): the tempo it settles on, and when it dances.
+func beats(_ path: String) throws {
+    let file = try AVAudioFile(forReading: URL(filePath: path))
+    let target = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false)!
+    guard let converter = AVAudioConverter(from: file.processingFormat, to: target) else { print("can't convert"); return }
+    var dance = Dance()
+    var detector = KickDetector()
+    var heard = 0.0
+    var kicks: [Double] = []
+    var lastReport = -1.0
+    var done = false
+    while !done {
+        let out = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: 1_600)!
+        var error: NSError?
+        converter.convert(to: out, error: &error) { count, status in
+            let input = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: count)!
+            if (try? file.read(into: input, frameCount: count)) == nil || input.frameLength == 0 {
+                status.pointee = .endOfStream
+                return nil
+            }
+            status.pointee = .haveData
+            return input
+        }
+        if out.frameLength == 0 { done = true; continue }
+        let block = Array(UnsafeBufferPointer(start: out.floatChannelData![0], count: Int(out.frameLength)))
+        let got = detector.hear(block, at: heard)
+        kicks += got.kicks
+        dance.hear(got)
+        heard += Double(block.count) / 16_000
+        if heard - lastReport >= (CommandLine.arguments.contains("--often") ? 2 : 10) {
+            lastReport = heard
+            let recent = kicks.filter { $0 > heard - 10 }.count
+            let state = dance.at(heard).map { String(format: "dancing (%.0f%%)", $0.amount * 100) } ?? "still"
+            let tempo = (dance.beat(at: heard).map { String(format: "%.0f BPM", 60 / $0) } ?? "no steady beat")
+                + String(format: " (fit %.2f)", dance.confidence)
+            print(String(format: "%5.0f s: %2d kicks in the last 10 s, %@, %@", heard, recent, tempo as NSString, state as NSString))
+        }
+    }
+    print(String(format: "%d kicks in %.0f s", kicks.count, heard))
+}
+
+if let path = option("--beats") {
+    try beats(path)
     exit(0)
 }
 

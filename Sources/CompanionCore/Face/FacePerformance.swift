@@ -210,14 +210,15 @@ public struct Blinks: Sendable {
     }
 }
 
-/// The invisible head the visor is mounted on. With no music to nod to it
-/// breathes, sways and tilts on unrelated periods so it never loops, and
-/// moves more freely while listening than while talking.
+/// The invisible head the visor is mounted on. With no music to dance to
+/// (`Dance`) it breathes, sways and tilts on unrelated periods so it never
+/// loops, and moves a little more freely while listening than while talking.
+/// Faintly: at three times this it read as floating (2026-10-21).
 public struct HeadMotion: Sendable {
-    static let bob = 0.022
-    static let sway = 0.011
-    static let tiltDegrees = 1.2
-    static let listening = 1.6
+    static let bob = 0.008
+    static let sway = 0.004
+    static let tiltDegrees = 0.5
+    static let listening = 1.25
     static let breath = 4.7
     static let tempo = 100.0
     let phase: Double

@@ -2,8 +2,9 @@ import CompanionCore
 import SwiftUI
 
 /// The visor: protoke's face drawn every frame from the performance, as an
-/// LED panel or as smooth outlines. Unlit cells stay faintly visible, the way
-/// a real panel's do, and while it listens they brighten with your voice.
+/// LED panel or as smooth outlines. Only the face is drawn: the panel's unlit
+/// cells stay dark, so nothing shows but the face, and while it listens the
+/// face glows a little brighter with your voice.
 public struct FaceView: View {
     public let performance: FacePerformance
     public var colour: Color
@@ -14,19 +15,23 @@ public struct FaceView: View {
     public var felt: () -> Felt
     /// Where whoever is talking is, read every frame.
     public var look: () -> Point?
+    /// Where the head is in a dance to music, read every frame.
+    public var dance: () -> (point: Point, amount: Double)?
 
     /// One grid for every expression, so the cells never move.
     static let grid = FaceMatrix.grid(for: Expression.allCases.map(\.face))
 
     public init(performance: FacePerformance, colour: Color = VisorColour.cyan.color, style: VisorStyle = .panel,
                 hearing: @escaping () -> Float = { 0 }, felt: @escaping () -> Felt = { .still },
-                look: @escaping () -> Point? = { nil }) {
+                look: @escaping () -> Point? = { nil },
+                dance: @escaping () -> (point: Point, amount: Double)? = { nil }) {
         self.performance = performance
         self.colour = colour
         self.style = style
         self.hearing = hearing
         self.felt = felt
         self.look = look
+        self.dance = dance
     }
 
     public var body: some View {
@@ -38,7 +43,8 @@ public struct FaceView: View {
             let now = ProcessInfo.processInfo.systemUptime + timeline.date.timeIntervalSinceNow
             Canvas { context, size in
                 let posed = performance.pose(at: now)
-                let pose = felt().apply(to: Attention.apply(look(), mood: performance.mood, to: posed))
+                let danced = Dance.apply(dance(), to: posed)
+                let pose = felt().apply(to: Attention.apply(look(), mood: performance.mood, to: danced))
                 Self.draw(pose, in: &context, size: size, colour: colour, style: style, hearing: Double(hearing()))
             }
         }
@@ -95,20 +101,13 @@ public struct FaceView: View {
             let centre = grid.centre(column, row)
             return CGRect(x: centre.x - side / 2, y: centre.y - side / 2, width: side, height: side)
         }
-        var unlit = Path()
-        for row in 0..<grid.rows {
-            for column in 0..<grid.columns {
-                unlit.addRoundedRect(in: dot(column, row), cornerSize: CGSize(width: side * 0.2, height: side * 0.2))
-            }
-        }
         var bright = Path()
         for cell in lit {
             bright.addRoundedRect(in: dot(cell.column, cell.row), cornerSize: CGSize(width: side * 0.2, height: side * 0.2))
         }
-        context.fill(unlit, with: .color(colour.opacity(0.07 + 0.13 * glow)))
-        context.drawLayer { glow in
-            glow.addFilter(.blur(radius: side * scale * 0.9))
-            glow.fill(bright, with: .color(colour.opacity(0.85)))
+        context.drawLayer { halo in
+            halo.addFilter(.blur(radius: side * scale * (0.9 + 0.5 * glow)))
+            halo.fill(bright, with: .color(colour.opacity(0.75 + 0.25 * glow)))
         }
         context.fill(bright, with: .color(colour))
     }

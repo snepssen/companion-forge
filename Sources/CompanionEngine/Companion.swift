@@ -100,6 +100,21 @@ public final class Companion {
     }
     public var level: Float { audio?.buffer.level ?? 0 }
 
+    /// Music it hears, for the face to dance to.
+    public let beat = BeatSense()
+    /// How it dances when there's music with a steady kick: nodding, a
+    /// figure of eight, or not at all (nil). Remembered.
+    public var dance: Dance.Pattern? = Companion.storedDance {
+        didSet {
+            UserDefaults.standard.set(dance?.rawValue ?? "off", forKey: "dance")
+            beat.pattern = dance
+        }
+    }
+    private static var storedDance: Dance.Pattern? {
+        let stored = UserDefaults.standard.string(forKey: "dance") ?? Dance.Pattern.infinity.rawValue
+        return Dance.Pattern(rawValue: stored)
+    }
+
     private var recognizer: Recognizer?
     private var brain: Brain?
     private var voice: Voice?
@@ -233,6 +248,8 @@ public final class Companion {
                 if spatialVoice { notice = "The spatial voice wouldn't start here, so it's speaking plainly." }
             }
             self.audio = audio
+            beat.pattern = dance
+            audio.buffer.listener = { [beat] block in beat.hear(block) }
             let log = try? ConversationLog(directory: Resources.conversations)
             let (stream, continuation) = AsyncStream<LoopEvent>.makeStream()
             let loop = Loop(audio: audio, vad: try SileroVAD(model: vadURL), recognizer: recognizer, brain: brain,

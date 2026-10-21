@@ -15,12 +15,21 @@ public final class SampleBuffer: @unchecked Sendable {
 
     public init() {}
 
+    /// Handed each block as it arrives, on the audio thread: keep it quick.
+    public var listener: (@Sendable ([Float]) -> Void)? {
+        get { lock.withLock { heard } }
+        set { lock.withLock { heard = newValue } }
+    }
+    private var heard: (@Sendable ([Float]) -> Void)?
+
     public func append(_ block: [Float]) {
         let rms = block.isEmpty ? 0 : (block.reduce(0) { $0 + $1 * $1 } / Float(block.count)).squareRoot()
-        lock.withLock {
+        let listener = lock.withLock {
             samples += block
             self.rms = rms
+            return heard
         }
+        listener?(block)
     }
 
     /// Stream samples from `start` to `end`, whatever of them is still held.

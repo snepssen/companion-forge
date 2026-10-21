@@ -12,6 +12,13 @@ public struct ContentView: View {
     @State private var faceOnly = false
     @AppStorage(VisorColour.key) private var colour = VisorColour.cyan
     @AppStorage(VisorStyle.key) private var style = VisorStyle.panel
+    #if os(iOS)
+    /// A phone on its side: little height, so the face gets what there is.
+    @Environment(\.verticalSizeClass) private var height
+    private var short: Bool { height == .compact }
+    #else
+    private let short = false
+    #endif
 
     public init(companion: Companion) { self.companion = companion }
 
@@ -20,12 +27,13 @@ public struct ContentView: View {
             FaceView(performance: companion.face, colour: colour.color, style: style,
                      hearing: { [companion] in companion.listening ? companion.level : 0 },
                      felt: { [motion = companion.motion] in motion.felt() },
-                     look: { [attention = companion.attention] in attention.look() })
+                     look: { [attention = companion.attention] in attention.look() },
+                     dance: { [beat = companion.beat] in beat.step() })
             #if os(macOS)
             .background(WindowMotion(motion: companion.motion))
             #endif
             .padding(.horizontal, faceOnly ? 16 : 40)
-            .padding(.vertical, faceOnly ? 16 : 24)
+            .padding(.vertical, faceOnly || short ? 8 : 24)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .contentShape(Rectangle())
             .onTapGesture(count: 2) { withAnimation(.easeInOut(duration: 0.3)) { faceOnly.toggle() } }
@@ -33,13 +41,13 @@ public struct ContentView: View {
             if !faceOnly {
                 captions
                     .padding(.horizontal, 24)
-                    .padding(.bottom, 12)
+                    .padding(.bottom, short ? 4 : 12)
                     .transition(.opacity)
             }
             if !faceOnly {
                 bar
                     .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
+                    .padding(.vertical, short ? 6 : 12)
                     .background(.white.opacity(0.04))
                     .transition(.opacity)
             }
@@ -267,6 +275,13 @@ struct SettingsView: View {
                 Text("Double-tap the face to hide everything else; double-tap again to bring it back.")
                     .font(.caption).foregroundStyle(.secondary)
                 #endif
+                Picker("Dance to music", selection: $companion.dance) {
+                    Text("Off").tag(Dance.Pattern?.none)
+                    Text("Up and down").tag(Dance.Pattern?.some(.nod))
+                    Text("Infinity").tag(Dance.Pattern?.some(.infinity))
+                }
+                Text("When it hears music with a steady kick drum, it moves to the beat, landing on each kick.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Section("Speaking") {
                 Toggle("Echo cancellation", isOn: $companion.echoCancellation)
