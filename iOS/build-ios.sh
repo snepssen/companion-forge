@@ -5,7 +5,7 @@
 #   iOS/build-ios.sh --device iPad  # on the first connected iPad (or a name, like "iPhone 17")
 #   iOS/build-ios.sh --no-install
 #
-# The voice is voice-forge's English snepssen; espeak-ng and its data come
+# The voice is the polyglot snepssen (scripts/polyglot-voice.sh); espeak-ng and its data come
 # with the voice-core package; the VAD model from models/. The language model
 # and the memory's embedder are not bundled: the app fetches them (2.3 to 5 GB,
 # best on Wi-Fi). MLX needs a real GPU, so there is no Simulator build.
@@ -13,12 +13,15 @@ set -euo pipefail
 cd "$(dirname "$0")"
 IOS="$(pwd)"
 REPO="$(cd .. && pwd)"
-VOICE="$REPO/../voice-forge/macos/Sources/VoiceForgeTTS/Resources/en_US-snepssen-medium.onnx"
+VOICE="$("$REPO/scripts/polyglot-voice.sh")"
 
-[ -s "$VOICE" ] && [ -s "$VOICE.json" ] || { echo "error: the voice is missing: $VOICE" >&2; exit 1; }
 "$REPO/scripts/fetch-models.sh"
 mkdir -p Resources
-cp "$VOICE" "$VOICE.json" "$REPO/models/silero_vad.onnx" Resources/
+rm -f Resources/en_US-snepssen-medium.onnx Resources/en_US-snepssen-medium.onnx.json
+cp "$VOICE" Resources/snepssen-polyglot.onnx
+cp "$VOICE.json" Resources/snepssen-polyglot.onnx.json
+cp "$REPO/models/silero_vad.onnx" Resources/
+echo "voice: $VOICE"
 
 xcodegen generate --quiet
 # Remove only the generated app, keeping dependency and build caches: a

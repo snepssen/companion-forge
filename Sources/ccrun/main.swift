@@ -17,6 +17,7 @@
 //   ccrun --icon <file.png>     the app icon, 1024 px
 //   ccrun --spatial-check       the spatial voice's audio graph, run silently
 //   ccrun --lipsync "text"      the mouth from the voice's phoneme timings, beside the spelling estimate
+//   ccrun --say "text" [--hint ro]  out loud, each part in its language
 //   ccrun --recall              how the embedder ranks notes, for the thresholds
 //   ccrun --long [--anticipate] a long conversation: prompt re-reading and first-word times
 //   ccrun --ask "a | b"         each said to it on its own, and its answer
@@ -444,6 +445,25 @@ if CommandLine.arguments.contains("--watch") {
 
 if CommandLine.arguments.contains("--mic-check") || option("--mic-check") != nil {
     try await micCheck()
+    exit(0)
+}
+
+/// A sentence as the voice will say it: its parts and their languages,
+/// then out loud through the speakers. --hint names the language asked about.
+func sayAloud(_ text: String, hint: String?) async throws {
+    guard let voiceURL = Resources.voice, let espeak = Resources.espeakData else { print("no voice"); return }
+    let voice = try Voice(model: voiceURL, espeakData: espeak)
+    print("voice: \(voiceURL.lastPathComponent)\(voice.isPolyglot ? " (polyglot)" : "")")
+    for (part, language) in voice.parts(text, hint: hint) { print("  [\(language)] \(part)") }
+    let (samples, mouth) = try voice.speakTimed(text, hint: hint)
+    print(String(format: "  %.2f s, %d mouth shapes", Double(samples.count) / voice.sampleRate, mouth?.count ?? 0))
+    let blurt = try Blurt(samples, rate: voice.sampleRate, spatial: false)
+    try await Task.sleep(for: .seconds(blurt.end - Duplex.now + 0.2))
+    blurt.stop()
+}
+
+if let text = option("--say") {
+    try await sayAloud(text, hint: option("--hint"))
     exit(0)
 }
 

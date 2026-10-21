@@ -1,9 +1,11 @@
 import CompanionCore
 import Foundation
+import NaturalLanguage
 import VoiceCore
 
-/// A Piper voice on voice-core's engine: translate-core's, as is, for now
-/// speaking English. The polyglot voice works too, if it is the one found.
+/// A Piper voice on voice-core's engine, from translate-core: the polyglot
+/// snepssen where it is found, so it can say words in other languages, else
+/// voice-forge's English one.
 ///
 /// Leaner than Voice Forge's `VoiceEngine`, whose expression and timing layer
 /// is that app's subject and not this one's: Piper's plain id layout (`^`,
@@ -55,40 +57,117 @@ public final class Voice: @unchecked Sendable {
     /// export kept it (voice-forge's voices do; the name is the exporter's).
     static let framesOutput = "/Ceil_output_0"
 
-    /// Samples, and the mouth shapes timed by how long the voice actually
-    /// spent on each phoneme. The mouth is nil for the polyglot voice, whose
-    /// layout differs, and for a graph without durations: the face then times
-    /// the words by their spelling.
-    public func speakTimed(_ text: String, pace: Double = 1) throws -> (samples: [Float], mouth: [VisemeSpan]?) {
+    /// Samples, and the mouth shapes for the phonemes said: timed by how long
+    /// the voice spent on each where the graph reports it, estimated where
+    /// it doesn't (the polyglot voice).
+    ///
+    /// The polyglot voice speaks each part of a sentence in its own language:
+    /// a quoted word in the language `hint` names ("how do I say breakfast in
+    /// Romanian?") or that Apple's detector is sure of, and a whole sentence
+    /// in another language in that language. The parts are spoken one by one
+    /// and joined. Languages it wasn't trained on go through plain espeak-ng,
+    /// accent and all.
+    public func speakTimed(_ text: String, hint: String? = nil, pace: Double = 1)
+        throws -> (samples: [Float], mouth: [VisemeSpan]?) {
         lock.lock()
         defer { lock.unlock() }
-        let inference = model.config.inference
-        var scale = inference.length_scale
-        let ids: [Int]
-        var symbols: [Character]?
-        if let polyglot = model.config.polyglot {
-            ids = try polyglotIDs(text, speaking)
-            scale *= polyglot.length_scale?[speaking] ?? 1
-        } else {
-            let phonemes = try phonemizer(model.config.espeak.voice).phonemize(text)
-            ids = model.ids(phonemes)
-            let map = model.config.phoneme_id_map
-            symbols = Phonemes.layout(phonemes) { map[String($0)]?.count ?? 0 }
+        let parts = isPolyglot ? self.parts(text, hint: hint) : [(text, "en")]
+        var samples: [Float] = []
+        var mouth: [VisemeSpan]? = []
+        for (part, language) in parts {
+            let (said, shapes) = try infer(part, language: language, pace: pace)
+            let offset = Double(samples.count) / sampleRate
+            mouth = shapes.flatMap { shapes in mouth.map { $0 + shapes.map { VisemeSpan($0.start + offset, $0.end + offset, $0.viseme) } } }
+            samples += said
         }
-        guard ids.count > 3 else { return ([], nil) }
-        let result = try model.infer(ids, noiseScale: inference.noise_scale, lengthScale: scale / pace,
-                                     noiseW: inference.noise_w, extraOutputs: [Self.framesOutput])
-        var samples = result.samples
         if let peak = samples.map(abs).max(), peak > 1e-8 {
             let gain = 0.9 / peak
             for i in samples.indices { samples[i] *= gain }
         }
-        let mouth = symbols.flatMap { symbols in
-            result.extra[Self.framesOutput].flatMap {
-                Phonemes.spans(symbols, frames: $0, seconds: Double(samples.count) / sampleRate)
+        return (samples, samples.isEmpty ? nil : mouth)
+    }
+
+    /// One part in one language, unnormalised. Under `lock`.
+    private func infer(_ text: String, language: String, pace: Double) throws -> (samples: [Float], mouth: [VisemeSpan]?) {
+        let inference = model.config.inference
+        var scale = inference.length_scale
+        let ids: [Int]
+        let symbols: [Character]
+        let map = model.config.phoneme_id_map
+        if let polyglot = model.config.polyglot {
+            let sentences = try Polyphon.sentences(text, language: language,
+                                                   espeak: phonemizer(Polyphon.espeakVoice(language)))
+            ids = Polyphon.ids(sentences, map: map)
+            symbols = Phonemes.layout(sentences: sentences) { map[String($0)]?.count ?? 0 }
+            // Its trained languages at their own pace; the rest a little slower than English.
+            scale *= polyglot.length_scale?[language] ?? (language == "en" ? 1 : 1.2)
+        } else {
+            let phonemes = try phonemizer(model.config.espeak.voice).phonemize(text)
+            ids = model.ids(phonemes)
+            symbols = Phonemes.layout(phonemes) { map[String($0)]?.count ?? 0 }
+        }
+        guard ids.count > 3 else { return ([], []) }
+        let result = try model.infer(ids, noiseScale: inference.noise_scale, lengthScale: scale / pace,
+                                     noiseW: inference.noise_w, extraOutputs: [Self.framesOutput])
+        // The graph's own durations where it reports them; otherwise an estimate.
+        let frames = result.extra[Self.framesOutput] ?? Phonemes.estimatedFrames(symbols)
+        return (result.samples, Phonemes.spans(symbols, frames: frames, seconds: Double(result.samples.count) / sampleRate))
+    }
+
+    /// A sentence's parts and the language of each, neighbours in the same
+    /// language joined.
+    public func parts(_ text: String, hint: String?) -> [(String, String)] {
+        var parts: [(String, String)] = []
+        var near = hint
+        for segment in Languages.segments(text) {
+            // A language named just before a quote ("…in Hungarian is
+            // 'köszönöm'") says more about it than the question did.
+            if !segment.quoted, let named = Languages.named(in: segment.text) { near = named }
+            let language = segment.quoted ? quotedLanguage(segment.text, hint: near) : sentenceLanguage(segment.text)
+            if let last = parts.last, last.1 == language {
+                parts[parts.count - 1].0 += " " + segment.text
+            } else {
+                parts.append((segment.text, language))
             }
         }
-        return (samples, mouth)
+        return parts.isEmpty ? [(text, "en")] : parts
+    }
+
+    /// A quoted word or phrase: the language they asked about, unless the
+    /// detector is sure it's something else; English if nothing says otherwise.
+    func quotedLanguage(_ text: String, hint: String?) -> String {
+        let guesses = Self.guesses(text, hint: hint)
+        if let hint, available(hint), guesses[hint, default: 0] >= 0.15 || guesses.isEmpty { return hint }
+        if let best = guesses.max(by: { $0.value < $1.value }), best.value >= 0.6, available(best.key) { return best.key }
+        return hint.flatMap { available($0) ? $0 : nil } ?? "en"
+    }
+
+    /// A whole stretch of sentence: another language only when it is plainly
+    /// one, several words long; otherwise English.
+    func sentenceLanguage(_ text: String) -> String {
+        guard text.split(separator: " ").count >= 3,
+              let best = Self.guesses(text, hint: nil).max(by: { $0.value < $1.value }),
+              best.value >= 0.85, available(best.key)
+        else { return "en" }
+        return best.key
+    }
+
+    /// Apple's on-device language detector, as espeak-ng's voice names.
+    static func guesses(_ text: String, hint: String?) -> [String: Double] {
+        let recognizer = NLLanguageRecognizer()
+        if let hint { recognizer.languageHints = [NLLanguage(rawValue: hint): 0.7] }
+        recognizer.processString(text)
+        var out: [String: Double] = [:]
+        for (language, probability) in recognizer.languageHypotheses(withMaximum: 5) {
+            let code = language.rawValue.hasPrefix("zh") ? "cmn" : String(language.rawValue.prefix(2))
+            out[code, default: 0] += probability
+        }
+        return out
+    }
+
+    /// Whether espeak-ng can read it.
+    func available(_ language: String) -> Bool {
+        language == "en" || FileManager.default.fileExists(atPath: espeakData.appending(path: "\(language == "cmn" ? "cmn" : language)_dict").path)
     }
 
     /// Polyphon's ids for `text` in `language`, without speaking it.

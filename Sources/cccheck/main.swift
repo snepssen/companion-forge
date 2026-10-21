@@ -393,11 +393,24 @@ check("timed by the voice's own frames", mouthSpans.map { spans in
     spans.count == 2 && spans[0].viseme == .mm && near(spans[0].start, 0.3, 1e-9) && near(spans[0].end, 0.7, 1e-9)
         && spans[1].viseme == .ah && near(spans[1].start, 0.8, 1e-9) && near(spans[1].end, 1.3, 1e-9)
 } ?? false)
+let estimated = Phonemes.spans(laid, frames: Phonemes.estimatedFrames(laid), seconds: 1)
+check("without the voice's timings, the shapes are still there", estimated?.map(\.viseme) == [.mm, .ah])
 check("frames that don't line up are not used", Phonemes.spans(laid, frames: [1, 2], seconds: 1) == nil)
 var lipping = FacePerformance(origin: 0)
 lipping.say([VisemeSpan(0.0, 0.2, .mm), VisemeSpan(0.2, 0.6, .ah)], at: 10)
 check("the mouth is shut on m and open on ah", lipping.pose(at: 10.1).face.mouth.aperture < 0.2
     && lipping.pose(at: 10.4).face.mouth.aperture > 0.8)
+
+// MARK: languages
+
+check("the language they asked about", Languages.named(in: "How can I say breakfast in Romanian?") == "ro"
+    && Languages.named(in: "What's the weather like?") == nil && Languages.named(in: "Say it in English") == nil)
+let parts = Languages.segments("Breakfast in Romanian is “micul dejun”, and lunch is \"prânz\".")
+check("a sentence cut at its quotes", parts.map(\.text) == ["Breakfast in Romanian is", "micul dejun", ", and lunch is", "prânz", "."].filter { $0.contains(where: \.isLetter) }
+    && parts.map(\.quoted) == [false, true, false, true])
+check("a sentence without quotes is one part", Languages.segments("Good morning!").count == 1)
+let twoSentences = Phonemes.layout(sentences: [["a"], ["o", "?"]]) { $0 == "?" ? 0 : 1 }
+check("the polyglot layout runs per sentence", twoSentences == ["^", "_", "a", "_", "$", "^", "_", "o", "_", "$"])
 
 // MARK: motion
 

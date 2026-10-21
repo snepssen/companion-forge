@@ -19,9 +19,9 @@ targets:
     platform: iOS
     sources:
       - path: App  # Assets.xcassets holds the icon, from ccrun --icon
-      - path: Resources/en_US-snepssen-medium.onnx
+      - path: Resources/snepssen-polyglot.onnx
         buildPhase: resources
-      - path: Resources/en_US-snepssen-medium.onnx.json
+      - path: Resources/snepssen-polyglot.onnx.json
         buildPhase: resources
       - path: Resources/silero_vad.onnx
         buildPhase: resources

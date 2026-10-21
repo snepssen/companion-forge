@@ -38,7 +38,7 @@ public struct ChatModel: Pinned, Identifiable, Hashable, Sendable {
     /// Whether this device has the memory for it alongside recognition and the voice.
     public var fits: Bool {
         #if os(macOS)
-        true
+        Double(ProcessInfo.processInfo.physicalMemory) / 1e9 >= memoryGB * 2.3
         #else
         Double(ProcessInfo.processInfo.physicalMemory) / 1e9 >= memoryGB * 2.3
         #endif
@@ -49,6 +49,17 @@ public enum ModelCatalog {
     // translate-core's pins, sizes and measurements, so a model downloaded
     // for either app is the same files.
     public static let all: [ChatModel] = [
+        // Twice the size of the others, and knows more: for a Mac with the
+        // memory (16 GB and up), not a phone. Its vision tower is left unused.
+        ChatModel(
+            id: "qwen3.5-9b-4bit", name: "Qwen3.5 9B", tagline: "Knows the most · Mac with 16 GB",
+            repo: "mlx-community/Qwen3.5-9B-4bit", revision: "8b2b98c00a6b4d291155e4890773ca8f769aee53",
+            memoryGB: 6.6,
+            files: [.init(name: "chat_template.jinja", size: 7756), .init(name: "config.json", size: 3331),
+                    .init(name: "model-00001-of-00002.safetensors", size: 5_349_771_222),
+                    .init(name: "model-00002-of-00002.safetensors", size: 600_449_850),
+                    .init(name: "model.safetensors.index.json", size: 123_592), .init(name: "tokenizer.json", size: 19_989_343),
+                    .init(name: "tokenizer_config.json", size: 1139), .init(name: "vocab.json", size: 6_722_759)]),
         ChatModel(
             id: "gemma-4-e4b-it-4bit", name: "Gemma 4 E4B", tagline: "Best conversation · Mac or 12 GB iPhone",
             repo: "mlx-community/gemma-4-e4b-it-4bit", revision: "475b9088d29754a3379866cf5aeb6b41acd313c2",
@@ -78,7 +89,11 @@ public enum ModelCatalog {
     ]
 
     public static var offered: [ChatModel] { all.filter(\.fits) }
-    public static var recommended: ChatModel { offered.first ?? all[all.count - 1] }
+    /// Gemma 4 E4B where it fits, as before; the bigger Qwen3.5 is offered,
+    /// not pressed on anyone.
+    public static var recommended: ChatModel {
+        offered.first { $0.id == "gemma-4-e4b-it-4bit" } ?? offered.first { $0.id != "qwen3.5-9b-4bit" } ?? all[all.count - 1]
+    }
     public static func model(_ id: String?) -> ChatModel? { all.first { $0.id == id } }
 }
 

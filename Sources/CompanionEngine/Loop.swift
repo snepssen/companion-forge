@@ -325,7 +325,9 @@ public actor Loop {
     private func speak(_ sentence: String, _ id: Int) async {
         guard reply.id == id, !Task.isCancelled else { return }
         let voice = voice
-        guard let (samples, mouth) = try? await Task.detached(operation: { try voice.speakTimed(sentence) }).value,
+        // The language they asked about, for quoted words in the reply.
+        let hint = Languages.named(in: reply.person)
+        guard let (samples, mouth) = try? await Task.detached(operation: { try voice.speakTimed(sentence, hint: hint) }).value,
               !samples.isEmpty, reply.id == id, !Task.isCancelled
         else { return }
         if reply.times.firstVoice == 0 { reply.times.firstVoice = Duplex.now - reply.started }

@@ -25,9 +25,9 @@ public enum Phonemes {
         switch symbol {
         case "a", "ɑ", "æ", "ʌ", "ɐ", "ä": .ah
         case "e", "ɛ", "ə", "ɚ", "ɜ", "ɝ", "ᵻ": .eh
-        case "i", "ɪ", "y", "j": .ee
-        case "o", "ɔ", "ɒ": .oh
-        case "u", "ʊ", "ɯ", "w", "ʃ", "ʒ", "ɹ", "r": .oo
+        case "i", "ɪ", "y", "j", "ɨ", "ʏ": .ee
+        case "o", "ɔ", "ɒ", "ø", "œ", "ɵ": .oh
+        case "u", "ʊ", "ɯ", "w", "ʃ", "ʒ", "ɹ", "r", "ʁ": .oo
         case "m", "b", "p": .mm
         case "f", "v": .ff
         case "θ", "ð", "s", "z": .th
@@ -49,6 +49,42 @@ public enum Phonemes {
             if count > 0 { symbols += Array(repeating: symbol, count: count) + ["_"] }
         }
         return symbols + ["$"]
+    }
+
+    /// The polyglot voice's layout: each sentence its own `^`, symbols and
+    /// pads, `$`, chained (voice-core's `Polyphon.ids`).
+    public static func layout(sentences: [[Unicode.Scalar]], ids: (Character) -> Int) -> [Character] {
+        sentences.flatMap { sentence -> [Character] in
+            var symbols: [Character] = ["^", "_"]
+            for scalar in sentence {
+                let symbol = Character(scalar)
+                let count = ids(symbol)
+                if count > 0 { symbols += Array(repeating: symbol, count: count) + ["_"] }
+            }
+            return symbols + ["$"]
+        }
+    }
+
+    /// Frames each symbol probably took, for a voice that doesn't report
+    /// them (the polyglot snepssen's export doesn't): vowels longest, a pause
+    /// at punctuation, a little between words. The shapes are right; their
+    /// timing is an estimate, shared out over the clip.
+    public static func estimatedFrames(_ symbols: [Character]) -> [Float] {
+        symbols.map { symbol in
+            switch symbol {
+            case "^", "$": 1
+            case "_": 0.3
+            case " ": 1.5
+            case ",", ";", ":": 4
+            case ".", "!", "?": 6
+            default:
+                switch viseme(symbol) {
+                case .ah?, .eh?, .ee?, .oh?: 2.2
+                case nil: symbol.isLetter ? 1 : 0.2
+                default: 1
+                }
+            }
+        }
     }
 
     /// Spans of mouth shapes from the symbols and the frames each one took.

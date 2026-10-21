@@ -2,7 +2,7 @@
 # Build Companion.app.
 #
 # xcodebuild rather than `swift build`: MLX compiles Metal shaders, which only
-# Xcode's build system does. The voice is voice-forge's English snepssen;
+# Xcode's build system does. The voice is the polyglot snepssen;
 # espeak-ng and its data come with the voice-core package; Silero VAD is
 # fetched once into models/. The language model (3.5-5 GB) is not bundled: it
 # is downloaded from the app's settings into ~/Library/Application Support/
@@ -14,9 +14,9 @@ APP="$ROOT/Companion.app"
 CONF="${1:-Release}"
 DERIVED="$ROOT/.build/xcode"
 PRODUCTS="$DERIVED/Build/Products/$CONF"
-VOICE="$ROOT/../voice-forge/macos/Sources/VoiceForgeTTS/Resources/en_US-snepssen-medium.onnx"
-
-[ -s "$VOICE" ] && [ -s "$VOICE.json" ] || { echo "error: the voice is missing: $VOICE" >&2; exit 1; }
+# The polyglot snepssen: voice-polyglot's newest export beside this checkout,
+# else its latest release (scripts/polyglot-voice.sh).
+VOICE="$("$ROOT/scripts/polyglot-voice.sh")"
 "$ROOT/scripts/fetch-models.sh"
 
 echo "checks…"
@@ -47,7 +47,9 @@ done < <(find "$PRODUCTS" -maxdepth 1 -name '*.bundle')
 [ -s "$APP/Contents/Resources/VoiceCore_VoiceCore.bundle/Contents/Resources/espeak-ng-data/phontab" ] \
   || { echo "error: voice-core's espeak-ng data is missing from the app" >&2; exit 1; }
 
-cp "$VOICE" "$VOICE.json" "$APP/Contents/Resources/"
+cp "$VOICE" "$APP/Contents/Resources/snepssen-polyglot.onnx"
+cp "$VOICE.json" "$APP/Contents/Resources/snepssen-polyglot.onnx.json"
+echo "voice: $VOICE"
 cp "$ROOT/models/silero_vad.onnx" "$APP/Contents/Resources/"
 cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/"  # ccrun --icon, then iconutil
 
