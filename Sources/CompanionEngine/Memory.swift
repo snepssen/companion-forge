@@ -78,12 +78,34 @@ public actor Memory {
                 let answer = try await brain.write(Remembering.instructions,
                                                    Remembering.transcript(shown, known: store.profile.map(\.text)))
                 let written = Remembering.parse(answer, turns: next...(end - 1))
+                // The diary entry for this stretch, which the calendar points back to.
+                var diary: JournalEntry?
+                let transcript = Remembering.transcript(shown, known: [])
+                if let text = Journal.entry(from: try await brain.write(Journal.instructions, transcript)) {
+                    let entry = JournalEntry(at: turns[end - 1].at, session: session, turns: next...(end - 1), text: text,
+                                             vector: await embedder.embed([text])[0])
+                    store.write(entry)
+                    diary = entry
+                }
                 let vectors = await embedder.embed(written.map(\.text))
                 for (note, vector) in zip(written, vectors) {
                     let at = turns[note.turns.upperBound].at
-                    store.add(Note(text: note.text, session: session, turns: note.turns, at: at,
-                                   lasting: note.lasting, vector: vector, due: CheckIn.due(note.text, said: at)))
+                    let made = Note(text: note.text, session: session, turns: note.turns, at: at,
+                                    lasting: note.lasting, vector: vector, due: CheckIn.due(note.text, said: at))
+                    store.add(made)
+                    if !CheckIn.happened(note.text), let when = When.read(note.text, said: at) {
+                        store.plan(Happening(text: note.text, when: when, note: made.id, journal: diary?.id))
+                    }
                 }
+                // What the diary dated and the notes missed.
+                if let diary {
+                    for sentence in Journal.sentences(diary.text) where !CheckIn.happened(sentence) {
+                        if let when = When.read(sentence, said: diary.at) {
+                            store.plan(Happening(text: sentence, when: when, journal: diary.id))
+                        }
+                    }
+                }
+                store.tidyCalendar()
                 added += written.count
                 store.wrote(session, through: end)
                 next = end
@@ -113,6 +135,22 @@ public actor Memory {
 
     /// Something to catch up on now, if anything has fallen due.
     public func checkIn(now: Date = Date()) -> Note? { CheckIn.pick(store.notes, now: now) }
+
+    /// Something on their calendar today or tomorrow to remind them of.
+    public func ahead(now: Date = Date()) -> (day: Date, happening: Happening)? {
+        Agenda.ahead(store.calendar, now: now)
+    }
+
+    /// It reminded them of `id`.
+    public func reminded(_ id: String, at date: Date = Date()) {
+        store.reminded(id, at: date)
+        try? save()
+    }
+
+    /// The answer to asking what's coming up or what they did.
+    public func agenda(_ ask: Agenda.Ask) -> String {
+        Agenda.answer(ask, happenings: store.calendar, journal: store.journal)
+    }
 
     /// It asked them about note `id`: not again.
     public func checkedIn(_ id: String, at date: Date = Date()) {

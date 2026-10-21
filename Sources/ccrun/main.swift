@@ -14,6 +14,7 @@
 //         [--style smooth] [--colour magenta] [--hearing 0.05]   (also for --window)
 //   ccrun --window <file.png>   the app's window, loaded as the app loads it
 //   ccrun --memory              earlier conversations written up, then recalled
+//   ccrun --journal             a conversation written up into notes, diary and calendar, then asked about
 //   ccrun --icon <file.png>     the app icon, 1024 px
 //   ccrun --spatial-check       the spatial voice's audio graph, run silently
 //   ccrun --lipsync "text"      the mouth from the voice's phoneme timings, beside the spelling estimate
@@ -195,6 +196,69 @@ func recall() async throws {
 /// Two earlier conversations written up by the model, then new things said
 /// to it: what comes to mind, and the reply with it. In a folder of its own,
 /// so the app's memory is untouched.
+/// A conversation from two days ago written up as the app does at idle:
+/// the notes, the diary entry and the calendar it leaves, then asked what's
+/// coming up, what they did, and told something ordinary while tomorrow's
+/// birthday is due a mention.
+func journalRun() async throws {
+    let folder = FileManager.default.temporaryDirectory.appending(path: "ccrun-journal-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let conversations = folder.appending(path: "Conversations")
+    let model = ModelCatalog.model(option("--model")) ?? ModelCatalog.recommended
+    guard let directory = ModelStore.location(of: model) else { print("\(model.name) isn't downloaded"); return }
+    let brain = try await Brain(model: model, at: directory)
+    let memory = Memory(file: folder.appending(path: "memory.json"), conversations: conversations,
+                        embedder: try await Embedder.load())
+    let day: TimeInterval = 86_400
+    let said = Date() - 2 * day
+    let format = DateFormatter()
+    format.dateFormat = "d MMMM"
+    let birthday = format.string(from: Date() + day)
+    format.dateFormat = "EEEE"
+    let dentist = format.string(from: Date() + 4 * day)
+    let interview = format.string(from: Date() - day)
+    let turns: [(Turn.Speaker, String)] = [
+        (.person, "Ugh, I have a job interview on \(interview) and I'm already nervous."),
+        (.companion, "That's a big one. What's the job?"),
+        (.person, "Junior designer at a little studio in town."),
+        (.companion, "Ooh, that sounds right up your street."),
+        (.person, "Also I need to sort out a present, my mum's birthday is on \(birthday)."),
+        (.companion, "Any ideas yet?"),
+        (.person, "Maybe a plant. She kills them all though. And I've got the dentist on \(dentist), which I'm dreading."),
+        (.companion, "Hah. Plants and dentists, a brave week."),
+    ]
+    let log = try ConversationLog(directory: conversations, started: said)
+    for (index, (speaker, text)) in turns.enumerated() { try log.append(Turn(speaker, text, at: said + Double(index) * 20)) }
+    let began = Duplex.now
+    try await memory.writeUp(with: brain)
+    print(String(format: "written up in %.1f s", Duplex.now - began))
+    let store = await memory.store
+    print("notes:"); for note in store.notes { print("  \(note.text)\(note.due.map { " (ask after \($0.formatted()))" } ?? "")") }
+    print("diary:"); for entry in store.journal { print("  \(entry.at.formatted()): \(entry.text)") }
+    print("calendar:")
+    for happening in store.calendar {
+        print("  \(happening.when.day.formatted(date: .abbreviated, time: .omitted)) \(happening.when.part.rawValue)"
+              + "\(happening.when.yearly ? " yearly" : ""): \(happening.text)\(happening.journal == nil ? "" : " [diary]")")
+    }
+    var conversation: [Turn] = []
+    for line in ["Hey!", "What's on this week?", "What did I talk to you about on \(format.string(from: said))?",
+                 "I'm making tea, it's freezing in here."] {
+        conversation.append(Turn(.person, line))
+        var recollection = await memory.recollect(for: line)
+        if let ask = Agenda.ask(in: line) { recollection.aside = await memory.agenda(ask) }
+        else if conversation.count >= 3, let (day, happening) = await memory.ahead() {
+            (recollection.coming, recollection.comingDay) = (happening, day)
+            print("  (reminding: \(happening.text))")
+        } else if conversation.count >= 3, let note = await memory.checkIn() {
+            recollection.checkIn = note
+            print("  (catching up: \(note.text))")
+        }
+        let reply = try await brain.reply(to: conversation, remembering: recollection) { _ in }
+        conversation.append(Turn(.companion, reply))
+        print("you: \(line)\n  it: \(reply)")
+    }
+}
+
 func memoryRun() async throws {
     let folder = FileManager.default.temporaryDirectory.appending(path: "ccrun-memory-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: folder) }
@@ -646,6 +710,11 @@ if let text = option("--ask") {
 
 if CommandLine.arguments.contains("--long") {
     try await longRun()
+    exit(0)
+}
+
+if CommandLine.arguments.contains("--journal") {
+    try await journalRun()
     exit(0)
 }
 

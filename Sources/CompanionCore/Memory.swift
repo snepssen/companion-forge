@@ -62,8 +62,49 @@ public struct MemoryStore: Codable, Sendable, Equatable {
     public private(set) var notes: [Note] = []
     /// Per session, the first turn not yet written up.
     public private(set) var written: [String: Int] = [:]
+    /// Its diary of their days, and the calendar of what they mentioned.
+    public private(set) var journal: [JournalEntry] = []
+    public private(set) var calendar: [Happening] = []
 
     public init() {}
+
+    enum CodingKeys: String, CodingKey { case notes, written, journal, calendar }
+
+    /// Memory saved before there was a journal or a calendar still loads.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        notes = try container.decodeIfPresent([Note].self, forKey: .notes) ?? []
+        written = try container.decodeIfPresent([String: Int].self, forKey: .written) ?? [:]
+        journal = try container.decodeIfPresent([JournalEntry].self, forKey: .journal) ?? []
+        calendar = try container.decodeIfPresent([Happening].self, forKey: .calendar) ?? []
+    }
+
+    public mutating func write(_ entry: JournalEntry) { journal.append(entry) }
+
+    /// Put something on the calendar, in place of what it already had from
+    /// the same note, or the same thing on the same day.
+    public mutating func plan(_ happening: Happening) {
+        // From the diary, with the note already there: the note's will do.
+        if happening.note == nil, calendar.contains(where: { $0.when.day == happening.when.day
+            && CheckIn.mentions($0.text, happening.text) }) {
+            return
+        }
+        calendar.removeAll {
+            ($0.note != nil && $0.note == happening.note)
+                || ($0.text == happening.text && $0.when.day == happening.when.day)
+        }
+        calendar.append(happening)
+    }
+
+    /// It reminded them of `id`.
+    public mutating func reminded(_ id: String, at date: Date = Date()) {
+        if let i = calendar.firstIndex(where: { $0.id == id }) { calendar[i].reminded = date }
+    }
+
+    /// Calendar entries long past, let go: a year-round thing stays.
+    public mutating func tidyCalendar(now: Date = Date()) {
+        calendar.removeAll { !$0.when.yearly && $0.when.day < now.addingTimeInterval(-60 * 86_400) }
+    }
 
     /// Add a note; returns the notes it replaced.
     @discardableResult
@@ -83,23 +124,35 @@ public struct MemoryStore: Codable, Sendable, Equatable {
 
     public func next(in session: String) -> Int { written[session] ?? 0 }
 
-    public mutating func forget(_ id: String) { notes.removeAll { $0.id == id } }
+    public mutating func forget(_ id: String) {
+        notes.removeAll { $0.id == id }
+        calendar.removeAll { $0.note == id }
+    }
 
     /// It asked them about note `id`.
     public mutating func checked(_ id: String, at date: Date = Date()) {
         if let i = notes.firstIndex(where: { $0.id == id }) { notes[i].checked = date }
     }
 
-    /// Notes from before check-ins, given their due dates.
-    public mutating func dateCheckIns() {
+    /// Notes from before check-ins and the calendar, given their due dates
+    /// and their days.
+    public mutating func dateCheckIns(now: Date = Date()) {
         for i in notes.indices where notes[i].due == nil && notes[i].checked == nil {
             notes[i].due = CheckIn.due(notes[i].text, said: notes[i].at)
         }
+        for note in notes where !calendar.contains(where: { $0.note == note.id }) && !CheckIn.happened(note.text) {
+            if let when = When.read(note.text, said: note.at), when.next(onOrAfter: now) != nil {
+                plan(Happening(text: note.text, when: when, note: note.id))
+            }
+        }
+        tidyCalendar(now: now)
     }
 
     public mutating func forgetAll() {
         notes = []
         written = [:]
+        journal = []
+        calendar = []
     }
 
     /// The lasting notes, newest first: what it knows about them, always.
@@ -174,6 +227,9 @@ public struct Recollection: Sendable, Equatable {
     public var aside: String?
     /// Something to ask them how it went, if it fits.
     public var checkIn: Note?
+    /// Something on their calendar to remind them of, and its day.
+    public var coming: Happening?
+    public var comingDay: Date?
 
     public init(profile: [Note] = [], notes: [Note] = [], excerpt: [Turn] = [], aside: String? = nil,
                 checkIn: Note? = nil) {
@@ -184,7 +240,9 @@ public struct Recollection: Sendable, Equatable {
         self.checkIn = checkIn
     }
 
-    public var isEmpty: Bool { profile.isEmpty && notes.isEmpty && excerpt.isEmpty && aside == nil && checkIn == nil }
+    public var isEmpty: Bool {
+        profile.isEmpty && notes.isEmpty && excerpt.isEmpty && aside == nil && checkIn == nil && coming == nil
+    }
 
     /// For the instructions: what it knows about them.
     public var knowing: String? {
@@ -195,10 +253,11 @@ public struct Recollection: Sendable, Equatable {
 
     /// Put before what they just said: what came to mind.
     public func reminder(now: Date = Date()) -> String? {
-        guard !notes.isEmpty || !excerpt.isEmpty || aside != nil || checkIn != nil else { return nil }
+        guard !notes.isEmpty || !excerpt.isEmpty || aside != nil || checkIn != nil || coming != nil else { return nil }
         var lines: [String] = []
         if let aside { lines.append("(\(aside))") }
         if let checkIn { lines.append(CheckIn.prompt(checkIn, now: now)) }
+        if let coming, let comingDay { lines.append(Agenda.prompt(comingDay, coming, now: now)) }
         guard !notes.isEmpty || !excerpt.isEmpty else { return lines.joined(separator: "\n") }
         lines.append("(This came to mind from earlier conversations. Use it if it helps; don't recite it.)")
         lines += notes.map { "- \(Remembering.when($0.at, now: now)): \($0.text)" }
@@ -224,6 +283,7 @@ public enum Remembering {
     from, like this:
     - [3-5] They walked by the river this evening and loved it.
     - [8] Their sister is visiting next week.
+    - [9] They have a job interview on Tuesday.
     - [11] They work in a bakery.
     - [14] They call you Pip.
     Notes are about them, never about you, and never something you said that they didn't: when you guessed \
@@ -231,7 +291,8 @@ public enum Remembering {
     with "They" or "Their". The one thing to note about you is what they call you, as "They call you …". \
     Worth remembering: their name, facts about them and the people \
     and pets in their life, what they like and dislike, plans and promises, things that happened to them, how \
-    they felt about something that mattered, anything they asked you to remember. Not worth it: greetings, \
+    they felt about something that mattered, anything they asked you to remember. Keep a day or date \
+    exactly as they said it ("on Tuesday", "on 3 November", "tonight"). Not worth it: greetings, \
     small talk, general questions, what they asked you to do, anything you offered, claimed, found or \
     suggested, anything you already know (but do note how something you knew about turned out, or what has \
     changed: "Their interview went well."). If they say their name, always note it. Write at most eight \

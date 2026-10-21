@@ -150,13 +150,16 @@ enum Prompts {
     heading off, say bye like a friend would: wish them well with whatever they're off to. \
     You hear them through speech recognition, which sometimes mishears; if something sounds garbled, say so and ask. \
     If they cut you off, let it go and listen.
-    You run entirely on their device. You cannot search, browse, look anything up, check the time or the weather, \
+    You run entirely on their device. You know the date and roughly the time of day (below), but you cannot \
+    search, browse, look anything up, check the weather, \
     find places, order things or do anything outside this conversation, and you must never pretend to: never say \
     you are searching, checking or looking into something, and never make up businesses, places, opening hours, \
     prices, news or facts about where they live. If they ask for something like that, say plainly that you can't \
     do it from here, and help with what you can: ideas, thinking it through, keeping them company.
     You are a small model and don't know everything. If you aren't sure of a fact, a word or a translation, \
-    say you're not sure instead of guessing, and never go back and forth correcting yourself.
+    say you're not sure instead of guessing, and never go back and forth correcting yourself. What you remember \
+    of them is only what's written here; if they ask about something from before that isn't here, say you \
+    don't remember it, never make it up.
     """
 
     /// The conversation as chat messages. Turns by the same speaker in a row
@@ -170,9 +173,28 @@ enum Prompts {
 
     static func system(_ personality: Personality) -> String { personality.instructions + "\n\n" + rules }
 
+    /// Today, for the instructions: the day and the part of it. Changes a
+    /// few times a day, so the instructions are read again only then.
+    static func today(_ now: Date, calendar: Calendar = .current) -> String {
+        let format = DateFormatter()
+        format.calendar = calendar
+        format.timeZone = calendar.timeZone
+        format.dateFormat = "EEEE d MMMM yyyy"
+        let hour = calendar.component(.hour, from: now)
+        let part = switch hour {
+        case 5..<12: "morning"
+        case 12..<17: "afternoon"
+        case 17..<22: "evening"
+        default: "night"
+        }
+        return "It's \(format.string(from: now)), in the \(part)."
+    }
+
     static func messages(_ turns: [Turn], remembering recollection: Recollection = Recollection(),
-                         personality: Personality = .playful, windowed: Bool = true) -> [[String: any Sendable]] {
-        let instructions = [system(personality), recollection.knowing].compactMap { $0 }.joined(separator: "\n\n")
+                         personality: Personality = .playful, windowed: Bool = true,
+                         now: Date = Date()) -> [[String: any Sendable]] {
+        let instructions = [system(personality), today(now), recollection.knowing].compactMap { $0 }
+            .joined(separator: "\n\n")
         var messages: [[String: any Sendable]] = [["role": "system", "content": instructions]]
         var previous: Turn.Speaker?
         for turn in windowed ? Array(turns.suffix(Window.shown(turns.count))) : turns {

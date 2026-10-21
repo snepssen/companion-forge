@@ -74,8 +74,10 @@ public actor Loop {
         var times = DraftTimes()
         /// What to do with the memory once the turn is theirs for certain.
         var memory: MemoryAction?
-        /// A note it was offered to catch up on in this reply.
+        /// A note it was offered to catch up on in this reply, or something
+        /// coming up to remind them of.
         var checkIn: Note?
+        var coming: Happening?
         var started = 0.0
         var said: [Said] = []
         var committed = false
@@ -263,12 +265,23 @@ public actor Loop {
                 if case let .translate(phrase, _) = lookup { lastLookup = phrase }
                 recollection.aside = [recollection.aside, dictionary.answer(lookup)].compactMap { $0 }.joined(separator: " ")
             }
+            // What's coming up, or what they did: the calendar and the diary.
+            let agenda = Agenda.ask(in: text)
+            if let agenda, let memory {
+                recollection.aside = [recollection.aside, await memory.agenda(agenda)].compactMap { $0 }.joined(separator: " ")
+            }
             // Now and then, when nothing else is going on: something to catch up on.
-            if let memory, lookup == nil, reply.memory == nil, turnCount >= Self.firstCheckIn,
-               turnCount - caughtUp >= Self.checkInEvery || caughtUp == 0,
-               let note = await memory.checkIn() {
-                recollection.checkIn = note
-                reply.checkIn = note
+            // Something coming up today or tomorrow comes first, then how
+            // something went.
+            if let memory, lookup == nil, agenda == nil, reply.memory == nil, turnCount >= Self.firstCheckIn,
+               turnCount - caughtUp >= Self.checkInEvery || caughtUp == 0 {
+                if let (day, happening) = await memory.ahead() {
+                    (recollection.coming, recollection.comingDay) = (happening, day)
+                    reply.coming = happening
+                } else if let note = await memory.checkIn() {
+                    recollection.checkIn = note
+                    reply.checkIn = note
+                }
             }
             guard reply.id == id, !Task.isCancelled else { return }
             reply.times.recalled = Duplex.now - reply.started
@@ -409,6 +422,10 @@ public actor Loop {
         if let note = reply.checkIn, let memory, CheckIn.asked(text, about: note) {
             caughtUp = turnCount
             Task { await memory.checkedIn(note.id) }
+        }
+        if let happening = reply.coming, let memory, CheckIn.mentions(text, happening.text) {
+            caughtUp = turnCount
+            Task { await memory.reminded(happening.id) }
         }
         lastReply = (text, (reply.said.last?.end ?? Duplex.now) + echoDelay.delay)
         emit(.replied(text, interrupted: false))

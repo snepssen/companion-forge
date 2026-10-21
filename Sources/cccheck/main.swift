@@ -550,6 +550,82 @@ check("so does hoping it went well", CheckIn.asked("Nice. I hope the interview w
 check("a question about something else doesn't", !CheckIn.asked("What kind of pancakes?", about: interview))
 check("it goes before their words", Recollection(checkIn: interview).reminder(now: sunday)?.contains("job interview") == true)
 
+// MARK: journal and calendar
+
+func whenDay(_ text: String) -> String? {
+    When.read(text, said: wednesday, calendar: utc).map { when in
+        let c = utc.dateComponents([.year, .month, .day], from: when.day)
+        return "\(c.year!)-\(c.month!)-\(c.day!) \(when.part.rawValue)\(when.yearly ? " yearly" : "")"
+    }
+}
+check("dates as people say them", whenDay("Their mum's birthday is on 3 November.") == "2026-11-3 day yearly"
+    && whenDay("Their dentist appointment is on the 28th.") == "2026-10-28 day"
+    && whenDay("They fly out March 12th.") == "2027-3-12 day"
+    && whenDay("They need to renew their passport before March.") == "2027-3-1 around"
+    && whenDay("Sam is coming over tomorrow night.") == "2026-10-22 evening"
+    && whenDay("They have a match next Saturday.") == "2026-10-31 day")
+check("a date already gone this month is next month's", whenDay("Rent is due on the 1st.") == "2026-11-1 day")
+check("a birthday comes round every year",
+      When(day: utc.date(from: DateComponents(year: 2026, month: 3, day: 3))!, part: .day, yearly: true)
+        .next(onOrAfter: wednesday, calendar: utc).map { utc.component(.year, from: $0) } == 2027)
+
+let thursday = utc.date(from: DateComponents(year: 2026, month: 10, day: 22, hour: 9))!
+let birthday = Happening(text: "Their mum's birthday is on 23 October.",
+                         when: When(day: utc.date(from: DateComponents(year: 2026, month: 10, day: 23))!, part: .day, yearly: true))
+let dentist = Happening(text: "Their dentist appointment is on the 28th.",
+                        when: When(day: utc.date(from: DateComponents(year: 2026, month: 10, day: 28))!, part: .day))
+let visit = Happening(text: "Their sister is visiting next week.",
+                      when: When(day: utc.date(from: DateComponents(year: 2026, month: 10, day: 29))!, part: .around))
+let diary = [JournalEntry(at: utc.date(from: DateComponents(year: 2026, month: 10, day: 18, hour: 20))!, session: "s",
+                          turns: 0...4, text: "They went climbing with Sam and came home sore but happy.", vector: [])]
+func asked(_ text: String) -> Agenda.Ask? { Agenda.ask(in: text, now: thursday, calendar: utc) }
+check("what's on this week, tomorrow, at the weekend", {
+    if case let .coming(_, _, label) = asked("What's on this week?"), label == "this week",
+       case let .coming(from, _, _) = asked("Have I got anything tomorrow?"), utc.component(.day, from: from) == 23,
+       case let .coming(from2, to2, _) = asked("Am I busy this weekend?"), utc.component(.day, from: from2) == 24,
+       utc.component(.day, from: to2) == 25 { return true }
+    return false
+}())
+check("what I did last weekend", {
+    if case let .past(from, to, _) = asked("What did I do last weekend?"),
+       utc.component(.day, from: from) == 17, utc.component(.day, from: to) == 18 { return true }
+    return false
+}())
+check("an ordinary question is neither", asked("What's your favourite colour?") == nil && asked("How are you?") == nil)
+let week = Agenda.answer(asked("What's on this week?")!, happenings: [birthday, dentist, visit], journal: diary, calendar: utc)
+check("this week: the birthday, the dentist, the visit about then, in order",
+      week.contains("Friday 23 October: Their mum's") && week.contains("Wednesday 28 October: Their dentist")
+        && week.contains("or so") && week.range(of: "birthday")!.lowerBound < week.range(of: "dentist")!.lowerBound)
+check("and nothing made up when there's nothing",
+      Agenda.answer(asked("Anything on today?")!, happenings: [dentist], journal: [], calendar: utc).contains("haven't told you"))
+check("the diary answers what they did",
+      Agenda.answer(asked("What did I do last weekend?")!, happenings: [], journal: diary, calendar: utc).contains("climbing"))
+check("tomorrow's birthday is mentioned today", Agenda.ahead([birthday, dentist], now: thursday, calendar: utc)?.happening.id == birthday.id)
+var remindedOnce = birthday
+remindedOnce.reminded = thursday
+check("but only once", Agenda.ahead([remindedOnce, dentist], now: thursday.addingTimeInterval(3600), calendar: utc) == nil)
+check("and not something only about then", Agenda.ahead([visit], now: utc.date(byAdding: .day, value: 6, to: thursday)!, calendar: utc) == nil)
+check("a date for a heading isn't the entry", Journal.entry(from: "October 15th. They went climbing with Sam.")
+    == "They went climbing with Sam." && Journal.entry(from: "Monday, 19 October: They went climbing with Sam.")
+    == "They went climbing with Sam.")
+check("a diary's things on different days are told apart",
+      Journal.sentences("They have an interview on Tuesday and their mum's birthday is on 22 October. They seemed nervous.").count == 3)
+check("a diary entry is tidied, and nothing is nothing",
+      Journal.entry(from: "Diary entry: They had a long day at work and the companion cheered them up.")
+        == "They had a long day at work and I cheered them up." && Journal.entry(from: "NONE") == nil)
+
+var planned = MemoryStore()
+planned.add(note("They have a dentist appointment on the 28th.", due: nil))
+let dentistNote = planned.notes[0]
+planned.plan(Happening(text: dentistNote.text, when: dentist.when, note: dentistNote.id))
+planned.plan(Happening(text: dentistNote.text, when: dentist.when, note: dentistNote.id))
+check("the same thing is on the calendar once", planned.calendar.count == 1)
+planned.forget(dentistNote.id)
+check("and forgetting the note takes it off", planned.calendar.isEmpty)
+let older = #"{"notes":[],"written":{"a":3}}"#
+check("memory saved before the journal still loads",
+      (try? JSONDecoder().decode(MemoryStore.self, from: Data(older.utf8)))?.next(in: "a") == 3)
+
 // MARK: dance
 
 // Music at 120 beats a minute: a kick each beat (a 55 Hz thump, falling

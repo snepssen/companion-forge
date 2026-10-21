@@ -369,7 +369,7 @@ struct MemoryView: View {
                 }
             }
             HStack {
-                Text("Forgetting everything deletes every note and every saved conversation.")
+                Text("Forgetting everything deletes every note, its diary and calendar of your days, and every saved conversation.")
                     .font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Button("Forget everything…", role: .destructive) { confirming = true }

@@ -18,41 +18,25 @@ public enum CheckIn {
     public static func due(_ text: String, said: Date, calendar: Calendar = .current) -> Date? {
         let lower = text.lowercased()
         // Told after the fact: they already said how it went.
-        if lower.range(of: #"^(?:they|their [\w' ]+?) (?:had|went|was|were|did|got|finished|passed|failed|loved|hated|enjoyed|liked)\b"#,
-                       options: .regularExpression) != nil {
-            return nil
-        }
+        if happened(text) { return nil }
         let day = calendar.startOfDay(for: said)
         func on(_ days: Int, hour: Int = 17) -> Date? {
             calendar.date(byAdding: DateComponents(day: days, hour: hour), to: day)
         }
         func has(_ pattern: String) -> Bool { lower.range(of: pattern, options: .regularExpression) != nil }
+        func at(_ date: Date, days: Int = 0, hour: Int = 17) -> Date? {
+            calendar.date(byAdding: DateComponents(day: days, hour: hour), to: date)
+        }
 
-        // An evening thing is asked about the next day; anything else from
-        // the evening of its day.
-        if has(#"\b(?:tonight|this evening|later tonight)\b"#) { return on(1, hour: 8) }
-        if has(#"\bday after tomorrow\b"#) { return on(2) }
-        if has(#"\btomorrow\b"#) { return on(1) }
-        if has(#"\b(?:today|this afternoon|later today|this morning)\b"#) { return on(0) }
-        if has(#"\bnext weekend\b"#) { return saturday(after: day, weeks: 1, calendar: calendar) }
-        if has(#"\b(?:this weekend|at the weekend|on the weekend|over the weekend)\b"#) {
-            return saturday(after: day, weeks: 0, calendar: calendar)
+        // A time to it: asked about after. An evening thing the next
+        // morning, a weekend on the Monday, anything else that evening.
+        if let when = When.read(text, said: said, calendar: calendar) {
+            switch when.part {
+            case .evening: return at(when.day, days: 1, hour: 8)
+            case .weekend: return at(when.day, days: 2, hour: 8)
+            case .day, .around: return at(when.day)
+            }
         }
-        let weekdays = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"]
-        for (index, name) in weekdays.enumerated() where has(#"\b"# + name + #"s?\b"#) {
-            let today = calendar.component(.weekday, from: day) - 1
-            var ahead = (index - today + 7) % 7
-            if ahead == 0 { ahead = 7 }
-            return on(ahead)
-        }
-        if let match = lower.firstMatch(of: /\bin (a|an|one|two|three|four|five|six|\d+) (day|week|month)s?\b/) {
-            let counts = ["a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6]
-            let n = counts[String(match.1)] ?? Int(match.1) ?? 1
-            let days = n * (match.2 == "day" ? 1 : match.2 == "week" ? 7 : 30)
-            return on(days)
-        }
-        if has(#"\bnext week\b"#) { return on(7) }
-        if has(#"\bnext month\b"#) { return on(30) }
         if has(#"\bsoon\b"#) { return on(5) }
         // Something under way: give it a few days.
         if has(#"\b(?:started|starting|just began|is learning|are learning|learning to|learning how|is sick|are sick|has a cold|has the flu|is ill|is unwell|is recovering|is looking for|are looking for|is trying to|are trying to|is working on|are working on|training for|is reading|is moving|are moving|is planning|are planning)\b"#) {
@@ -65,11 +49,10 @@ public enum CheckIn {
         return nil
     }
 
-    static func saturday(after day: Date, weeks: Int, calendar: Calendar) -> Date? {
-        let today = calendar.component(.weekday, from: day) - 1  // 0 Sunday
-        let ahead = (6 - today + 7) % 7 + 7 * weeks
-        // Asked about the Monday after: the weekend is over by then.
-        return calendar.date(byAdding: DateComponents(day: ahead + 2, hour: 8), to: day)
+    /// Told after the fact ("Their interview went well"): nothing to wait for.
+    public static func happened(_ text: String) -> Bool {
+        text.lowercased().range(of: #"^(?:they|their [\w' ]+?) (?:had|went|was|were|did|got|finished|passed|failed|loved|hated|enjoyed|liked)\b"#,
+                                options: .regularExpression) != nil
     }
 
     /// The note to ask about now, if any: fallen due, not yet asked about,
@@ -93,10 +76,14 @@ public enum CheckIn {
 
     /// Whether `reply` brought `note` up: shares a word with it. "I hope
     /// the interview went well" catches up as well as a question does.
-    public static func asked(_ reply: String, about note: Note) -> Bool {
+    public static func asked(_ reply: String, about note: Note) -> Bool { mentions(reply, note.text) }
+
+    /// Whether `reply` speaks of what `text` is about: a word they share,
+    /// other than the ordinary ones every note has.
+    public static func mentions(_ reply: String, _ text: String) -> Bool {
         let ordinary: Set<String> = ["they", "their", "them", "have", "has", "with", "this", "that", "next", "week",
                                      "tonight", "tomorrow", "today", "going", "over", "some", "about"]
-        let theirs = MemoryStore.words(note.text).subtracting(ordinary.map { MemoryStore.stem($0) })
+        let theirs = MemoryStore.words(text).subtracting(ordinary.map { MemoryStore.stem($0) })
         return !theirs.isDisjoint(with: MemoryStore.words(reply))
     }
 }
