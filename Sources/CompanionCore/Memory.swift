@@ -24,12 +24,9 @@ public struct Note: Codable, Identifiable, Equatable, Sendable {
     public var due: Date?
     /// When it was asked about.
     public var checked: Date?
-    /// Whose it is (`Voice.id`); nil from before there were voices: the owner's.
-    public var about: String?
 
     public init(id: String = UUID().uuidString, text: String, session: String, turns: ClosedRange<Int>, at: Date,
-                lasting: Bool, vector: [Float], due: Date? = nil, checked: Date? = nil, about: String? = nil) {
-        self.about = about
+                lasting: Bool, vector: [Float], due: Date? = nil, checked: Date? = nil) {
         self.id = id
         self.text = text
         self.session = session
@@ -69,7 +66,7 @@ public struct MemoryStore: Codable, Sendable, Equatable {
     public private(set) var journal: [JournalEntry] = []
     public private(set) var calendar: [Happening] = []
     public private(set) var weeks: [WeekSummary] = []
-    /// The voices it knows.
+    /// Its person's voice.
     public var household = Household()
 
     public init() {}
@@ -87,15 +84,6 @@ public struct MemoryStore: Codable, Sendable, Equatable {
         household = try container.decodeIfPresent(Household.self, forKey: .household) ?? Household()
     }
 
-    /// Whether `who` may have `about`'s things brought up: their own, and the
-    /// owner's things (and anything from before voices) with the owner or
-    /// with nobody told apart yet.
-    public func mine(_ about: String?, for who: String?) -> Bool {
-        let owner = household.owner?.id
-        let theirs = about ?? owner
-        let speaking = who ?? owner
-        return theirs == nil || theirs == speaking
-    }
 
     public mutating func summarise(_ week: WeekSummary) {
         weeks.removeAll { $0.week == week.week }
@@ -148,8 +136,7 @@ public struct MemoryStore: Codable, Sendable, Equatable {
     /// Add a note; returns the notes it replaced.
     @discardableResult
     public mutating func add(_ note: Note) -> [Note] {
-        // The same thing said again by the same person: one person's never replaces another's.
-        let replaced = notes.filter { $0.about == note.about && Self.cosine($0.vector, note.vector) >= Self.sameThing }
+        let replaced = notes.filter { Self.cosine($0.vector, note.vector) >= Self.sameThing }
         var note = note
         // Once lasting, still lasting: a passing mention doesn't demote their name.
         if replaced.contains(where: \.lasting) { note.lasting = true }
@@ -198,20 +185,17 @@ public struct MemoryStore: Codable, Sendable, Equatable {
     }
 
     /// The lasting notes, newest first: what it knows about them, always.
-    public var profile: [Note] { profile(for: nil) }
-
-    /// The lasting notes about whoever is talking, newest first.
-    public func profile(for who: String?) -> [Note] {
-        Array(notes.filter { $0.lasting && mine($0.about, for: who) }.sorted { $0.at > $1.at }.prefix(Self.profileSize))
+    public var profile: [Note] {
+        Array(notes.filter(\.lasting).sorted { $0.at > $1.at }.prefix(Self.profileSize))
     }
 
     /// The notes most relevant to `text`, best first. Meaning counts most,
     /// shared words (names above all) add to it, and recency breaks near-ties.
     /// Lasting notes are left out: they are in every reply already.
     public func recall(_ text: String, vector: [Float], limit: Int = 3, atLeast floor: Double = relevant,
-                       lasting: Bool = false, now: Date = Date(), for who: String? = nil) -> [(note: Note, score: Double)] {
+                       lasting: Bool = false, now: Date = Date()) -> [(note: Note, score: Double)] {
         let words = Self.words(text)
-        let scored = notes.filter { (lasting || !$0.lasting) && mine($0.about, for: who) }
+        let scored = notes.filter { lasting || !$0.lasting }
             .map { note -> (note: Note, score: Double) in
                 let meaning = Double(Self.cosine(vector, note.vector))
                 let shared = Self.overlap(words, Self.words(note.text))
@@ -274,7 +258,7 @@ public struct Recollection: Sendable, Equatable {
     public var lately: String?
     /// Diary entries that came to mind, when they asked about the past.
     public var diary: [JournalEntry] = []
-    /// Who's talking, when it can tell and it matters: by name, or someone new.
+    /// When it isn't its person talking: who, and how to be with them.
     public var talking: String?
     /// Something to ask them how it went, if it fits.
     public var checkIn: Note?
@@ -351,8 +335,7 @@ public enum Remembering {
     - [9] They have a job interview on Tuesday.
     - [11] They work in a bakery.
     - [14] They call you Pip.
-    If more than one person talks, each is named; write each note about the one who said it, \
-    still as "They". Notes are about them, never about you, and never something you said that they didn't: when you guessed \
+    Notes are about them, never about you, and never something you said that they didn't: when you guessed \
     ("Let me guess, chocolate chip?"), only what they answered counts. Begin every note \
     with "They" or "Their". The one thing to note about you is what they call you, as "They call you …". \
     Worth remembering: their name, facts about them and the people \
@@ -365,17 +348,14 @@ public enum Remembering {
     notes, only from what they said. If nothing is worth remembering, write only: NONE
     """
 
-    /// The conversation as the note writer reads it, turns numbered as in the
-    /// log, each of theirs labelled by `label` (their name, with more than one
-    /// person in it).
-    public static func transcript(_ turns: [(index: Int, turn: Turn)], known: [String],
-                                  label: (Turn) -> String = { _ in "Person" }) -> String {
+    /// The conversation as the note writer reads it, turns numbered as in the log.
+    public static func transcript(_ turns: [(index: Int, turn: Turn)], known: [String]) -> String {
         var text = ""
         if !known.isEmpty {
             text += "You already know:\n" + known.map { "- \($0)" }.joined(separator: "\n") + "\n\n"
         }
         text += "The conversation:\n"
-        text += turns.map { "[\($0.index)] \($0.turn.speaker == .person ? label($0.turn) : "Companion"): \($0.turn.text)" }
+        text += turns.map { "[\($0.index)] \($0.turn.speaker == .person ? "Person" : "Companion"): \($0.turn.text)" }
             .joined(separator: "\n")
         return text
     }
@@ -384,6 +364,12 @@ public enum Remembering {
         public var turns: ClosedRange<Int>
         public var text: String
         public var lasting: Bool
+    }
+
+    /// The transcript's name for them, "Person", back to "they".
+    public static func they(_ text: String) -> String {
+        text.replacing(/(^|[.!?]\s+)(?:[Tt]he )?[Pp]erson\b/) { "\($0.1)They" }
+            .replacing(/\b(?:the )?person\b/) { _ in "they" }
     }
 
     /// The notes in the model's answer: lines like `- [3-5] They ...`, turn
@@ -395,7 +381,7 @@ public enum Remembering {
             let last = match.2.flatMap { Int($0) } ?? first
             let low = min(max(min(first, last), valid.lowerBound), valid.upperBound)
             let high = min(max(max(first, last), valid.lowerBound), valid.upperBound)
-            var text = String(match.3)
+            var text = they(String(match.3))
             // Its own name for itself in the transcript, back to "you".
             text = text.replacing(/\b(?:the )?[Cc]ompanion\b/) { _ in "you" }
             let lasting = text.range(of: "(lasting)", options: .caseInsensitive) != nil

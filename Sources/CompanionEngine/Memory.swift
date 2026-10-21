@@ -51,64 +51,35 @@ public actor Memory {
 
     /// What it always knows: who they are, and how their last week went.
     /// Changes seldom, so the instructions stay in the attention cache.
-    public func standing(now: Date = Date(), for who: String? = nil) -> Recollection {
-        // The diary is the owner's: someone else gets only their own notes.
-        Recollection(profile: store.profile(for: who),
-                     lately: store.mine(nil, for: who) ? store.lately(now: now, entries: 2) : nil)
+    public func standing(now: Date = Date()) -> Recollection {
+        Recollection(profile: store.profile, lately: store.lately(now: now, entries: 2))
     }
 
-    /// The voices it knows, as last saved.
+    /// Its person's voice, as last saved.
     public var household: Household { store.household }
 
-    /// The voices, as the conversation has come to know them.
+    /// Its person's voice, as the conversation has come to know it.
     public func keep(_ household: Household) {
         guard household != store.household else { return }
-        // The first voice is the owner: if their name is already in the notes, it's theirs.
-        var household = household
-        if let owner = household.owner, owner.name == nil,
-           let named = store.profile(for: owner.id).lazy.compactMap({ Self.name(in: $0.text) }).first {
-            household.name(owner.id, named)
-        }
         store.household = household
         try? save()
-    }
-
-    /// A stranger's turns, before they were known as someone new, as theirs:
-    /// each goes to the next voice heard, if that voice was first heard
-    /// within a few minutes of it.
-    static func claimed(_ turns: [Turn], by household: Household) -> [Turn] {
-        var turns = turns
-        for i in turns.indices where turns[i].who == "nobody" {
-            let later = turns[(i + 1)...].first { $0.speaker == .person && $0.who != "nobody" && $0.who != nil }
-            if let voice = household.voice(later?.who), abs(voice.first.timeIntervalSince(turns[i].at)) < 600 {
-                turns[i].who = voice.id
-            }
-        }
-        return turns
-    }
-
-    /// "Their name is Lin." -> Lin.
-    static func name(in note: String) -> String? {
-        note.firstMatch(of: /^Their name is ([A-Z][a-z]+)/).map { String($0.1) }
     }
 
     /// Diary entries this close in meaning to a question about the past come to mind.
     static let diaryRelevant: Float = 0.55
 
     /// What comes to mind for what they just said.
-    public func recollect(for text: String, now: Date = Date(), who: String? = nil) async -> Recollection {
-        var recollection = standing(now: now, for: who)
+    public func recollect(for text: String, now: Date = Date()) async -> Recollection {
+        var recollection = standing(now: now)
         let past = Remembering.asksAboutThePast(text)
         guard store.notes.contains(where: { !$0.lasting }) || (past && !store.journal.isEmpty) else { return recollection }
         let vector = await embedder.embed([text], query: true)[0]
-        let found = store.recall(text, vector: vector, now: now, for: who).map(\.note)
+        let found = store.recall(text, vector: vector, now: now).map(\.note)
         recollection.notes = found
         if past {
             if let best = found.first { recollection.excerpt = turns(behind: best) }
             // The diary, for what no note holds: "remember when I went climbing?"
-            recollection.diary = store.journal.filter { entry in
-                    entry.who.map { $0.contains(who ?? store.household.owner?.id ?? "") } ?? store.mine(nil, for: who)
-                }
+            recollection.diary = store.journal
                 .map { ($0, MemoryStore.cosine(vector, $0.vector)) }
                 .filter { $0.1 >= Self.diaryRelevant }
                 .sorted { $0.1 > $1.1 }.prefix(2).map(\.0)
@@ -140,42 +111,40 @@ public actor Memory {
         var added = 0
         for log in logs {
             let session = log.deletingPathExtension().lastPathComponent
-            let turns = Self.claimed((try? ConversationLog.read(log, sealer: sealer)) ?? [], by: store.household)
+            let turns = (try? ConversationLog.read(log, sealer: sealer)) ?? []
             var next = store.next(in: session)
             while turns.count - next >= Remembering.fewest {
                 try Task.checkCancellation()
                 let end = min(turns.count, next + Remembering.chunk)
                 let shown = (next..<end).map { (index: $0, turn: turns[$0]) }
-                // With more than one voice in it, each is named for the note writer.
-                let voices = Set(shown.compactMap { $0.turn.speaker == .person ? $0.turn.who : nil })
-                let household = store.household
-                let label: (Turn) -> String = { turn in
-                    guard voices.count > 1 else { return "Person" }
-                    return household.voice(turn.who)?.name ?? (turn.who == nil ? "Person" : "Someone new")
+                // A guest's turns, and the replies to them, aren't its person's to keep.
+                let kept = Household.ownersOnly(shown)
+                guard kept.contains(where: { $0.turn.speaker == .person }) else {
+                    store.wrote(session, through: end)
+                    next = end
+                    try save()
+                    continue
                 }
                 let answer = try await brain.write(Remembering.instructions,
-                                                   Remembering.transcript(shown, known: store.profile.map(\.text), label: label))
+                                                   Remembering.transcript(kept, known: store.profile.map(\.text)))
                 let written = Remembering.parse(answer, turns: next...(end - 1))
                 // The diary entry for this stretch, which the calendar points back to.
                 var diary: JournalEntry?
-                let transcript = Remembering.transcript(shown, known: [], label: label)
+                let transcript = Remembering.transcript(kept, known: [])
                 if let text = Journal.entry(from: try await brain.write(Journal.instructions, transcript)) {
                     let entry = JournalEntry(at: turns[end - 1].at, session: session, turns: next...(end - 1), text: text,
-                                             vector: await embedder.embed([text])[0],
-                                             who: voices.isEmpty ? nil : voices.sorted())
+                                             vector: await embedder.embed([text])[0])
                     store.write(entry)
                     diary = entry
                 }
                 let vectors = await embedder.embed(written.map(\.text))
                 for (note, vector) in zip(written, vectors) {
                     let at = turns[note.turns.upperBound].at
-                    // Whose: the last of them to speak in the turns it came from.
-                    let about = note.turns.reversed().lazy.map { turns[$0] }.first { $0.speaker == .person }?.who
                     let made = Note(text: note.text, session: session, turns: note.turns, at: at,
-                                    lasting: note.lasting, vector: vector, due: CheckIn.due(note.text, said: at), about: about)
+                                    lasting: note.lasting, vector: vector, due: CheckIn.due(note.text, said: at))
                     store.add(made)
                     if !CheckIn.happened(note.text), let when = When.read(note.text, said: at) {
-                        store.plan(Happening(text: note.text, when: when, note: made.id, journal: diary?.id, about: about))
+                        store.plan(Happening(text: note.text, when: when, note: made.id, journal: diary?.id))
                     }
                 }
                 // What the diary dated and the notes missed.
@@ -235,13 +204,11 @@ public actor Memory {
     }
 
     /// Something to catch up on now, if anything has fallen due.
-    public func checkIn(now: Date = Date(), for who: String? = nil) -> Note? {
-        CheckIn.pick(store.notes.filter { store.mine($0.about, for: who) }, now: now)
-    }
+    public func checkIn(now: Date = Date()) -> Note? { CheckIn.pick(store.notes, now: now) }
 
     /// Something on their calendar today or tomorrow to remind them of.
-    public func ahead(now: Date = Date(), for who: String? = nil) -> (day: Date, happening: Happening)? {
-        Agenda.ahead(store.calendar.filter { store.mine($0.about, for: who) }, now: now)
+    public func ahead(now: Date = Date()) -> (day: Date, happening: Happening)? {
+        Agenda.ahead(store.calendar, now: now)
     }
 
     /// It reminded them of `id`.
@@ -251,10 +218,8 @@ public actor Memory {
     }
 
     /// The answer to asking what's coming up or what they did.
-    public func agenda(_ ask: Agenda.Ask, for who: String? = nil) -> String {
-        let owner = store.mine(nil, for: who)
-        return Agenda.answer(ask, happenings: store.calendar.filter { store.mine($0.about, for: who) },
-                             journal: owner ? store.journal : [], weeks: owner ? store.weeks : [])
+    public func agenda(_ ask: Agenda.Ask) -> String {
+        Agenda.answer(ask, happenings: store.calendar, journal: store.journal, weeks: store.weeks)
     }
 
     /// It asked them about note `id`: not again.

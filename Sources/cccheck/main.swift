@@ -634,36 +634,28 @@ func printNear(_ centre: [Float], _ wobble: Float, _ seed: Int) -> [Float] {
     let length = v.reduce(0) { $0 + $1 * $1 }.squareRoot()
     return v.map { $0 / length }
 }
-let lin: [Float] = [1, 0.2, 0, 0, 0.1, 0, 0, 0], sam: [Float] = [0, 0.1, 1, 0.2, 0, 0, 0, 0], ana: [Float] = [0, 0, 0, 0.1, 0, 1, 0.2, 0]
+let lin: [Float] = [1, 0.2, 0, 0, 0.1, 0, 0, 0], sam: [Float] = [0, 0.1, 1, 0.2, 0, 0, 0, 0]
 var home = Household()
-check("a short first word doesn't make anyone", home.hear(printNear(lin, 0.1, 1), seconds: 0.6) == .unsure && home.voices.isEmpty)
-let first = home.hear(printNear(lin, 0.1, 2), seconds: 3)
-check("the first voice heard is the owner", { if case .new = first { return home.owner != nil }; return false }())
-check("and is known again", { if case let .known(id, _) = home.hear(printNear(lin, 0.1, 3), seconds: 2.5) { return id == home.owner?.id }; return false }())
-check("someone else, once, is a stranger, not anyone yet", { if case .stranger = home.hear(printNear(sam, 0.1, 4), seconds: 2.5) { return home.voices.count == 1 }; return false }())
-let samArrives = home.hear(printNear(sam, 0.1, 5), seconds: 2.2)
-check("twice in a row, alike: someone new", { if case .new = samArrives { return home.voices.count == 2 }; return false }())
-check("a short 'yeah' from anyone decides nothing new", home.hear(printNear(ana, 0.1, 6), seconds: 0.8) == .unsure)
-check("two strangers who aren't alike aren't one person", {
-    var h = home
-    _ = h.hear(printNear(ana, 0.1, 7), seconds: 3)
-    if case .stranger = h.hear([0, 0, 0, 0, 0, 0, 0, 1], seconds: 3) { return h.voices.count == 2 }
+check("a short first word isn't learned as their voice", home.hear(printNear(lin, 0.1, 1), seconds: 0.6) == .unsure && home.owner == nil)
+check("the first voice heard for long enough is its person", home.hear(printNear(lin, 0.1, 2), seconds: 3) == .owner(1) && home.owner != nil)
+check("and is known again, and learned from", {
+    if case .owner = home.hear(printNear(lin, 0.1, 3), seconds: 2.5) { return home.owner?.heard == 2 }
     return false
 }())
-check("each is told apart from the other", {
-    if case let .known(a, _) = home.hear(printNear(lin, 0.1, 8), seconds: 2),
-       case let .known(b, _) = home.hear(printNear(sam, 0.1, 9), seconds: 2) { return a != b && a == home.owner?.id }
-    return false
-}())
-let mixed = [Turn(.person, "My sister is visiting.", who: "lin"), Turn(.companion, "Oh, nice!"),
-             Turn(.person, "Hi, I'm Sam.", who: "sam"), Turn(.companion, "Hey Sam."),
-             Turn(.person, "Who's visiting?", who: "lin"), Turn(.companion, "Your sister.")]
-check("each sees only their side of the conversation",
-      Household.visible(mixed, to: "sam").map(\.text) == ["Hi, I'm Sam.", "Hey Sam."]
-        && Household.visible(mixed, to: "lin").count == 4 && Household.visible(mixed, to: nil).count == 6)
-check("names as people give them", Household.introduces("Hi, I'm Sam.") == "Sam" && Household.introduces("My name is Ana") == "Ana"
-    && Household.introduces("You can call me Lin") == "Lin" && Household.introduces("I'm tired.") == nil
-    && Household.introduces("I'm Tired.") == nil && Household.introduces("It's Monday!") == nil)
+check("someone else, at length, is a guest", { if case .guest = home.hear(printNear(sam, 0.1, 4), seconds: 2.5) { return true }; return false }())
+check("and never becomes its person, or changes their voice",
+      home.owner?.heard == 2 && { if case .guest = home.hear(printNear(sam, 0.1, 5), seconds: 3) { return true }; return false }())
+check("a short 'yeah' decides nothing", home.hear(printNear(sam, 0.1, 6), seconds: 0.8) == .unsure)
+let withGuest = [Turn(.person, "My sister is visiting."), Turn(.companion, "Oh, nice!"),
+                 Turn(.person, "Hi, I'm Sam.", who: Household.guest), Turn(.companion, "Hey Sam."),
+                 Turn(.person, "Who's visiting?"), Turn(.companion, "Your sister.")]
+check("a guest sees only their side, and its person only theirs",
+      Household.visible(withGuest, toGuest: true).map(\.text) == ["Hi, I'm Sam.", "Hey Sam."]
+        && Household.visible(withGuest, toGuest: false).map(\.text) == ["My sister is visiting.", "Oh, nice!", "Who's visiting?", "Your sister."])
+check("the diary's Person at the start is they", Journal.entry(from: "Person asked who was coming on Saturday. I said Lynn's sister.")
+    == "They asked who was coming on Saturday. I said Lynn's sister.")
+check("and the memory keeps only its person's side",
+      Household.ownersOnly(withGuest.enumerated().map { ($0.offset, $0.element) }).map(\.index) == [0, 1, 4, 5])
 
 // MARK: night
 

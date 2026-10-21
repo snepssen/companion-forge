@@ -18,13 +18,9 @@ public struct JournalEntry: Codable, Identifiable, Equatable, Sendable {
     public var turns: ClosedRange<Int>
     public var text: String
     public var vector: [Float]
-    /// Who was talking (`Voice.id`s); nil: the owner, from before there were
-    /// voices. (Optional so diaries saved before still load.)
-    public var who: [String]?
 
     public init(id: String = UUID().uuidString, at: Date, session: String, turns: ClosedRange<Int>, text: String,
-                vector: [Float], who: [String]? = nil) {
-        self.who = who
+                vector: [Float]) {
         self.id = id
         self.at = at
         self.session = session
@@ -44,12 +40,8 @@ public struct Happening: Codable, Identifiable, Equatable, Sendable {
     public var journal: String?
     /// When it last reminded them it was coming.
     public var reminded: Date?
-    /// Whose it is (`Voice.id`); nil: the owner's.
-    public var about: String?
-
     public init(id: String = UUID().uuidString, text: String, when: When, note: String? = nil, journal: String? = nil,
-                reminded: Date? = nil, about: String? = nil) {
-        self.about = about
+                reminded: Date? = nil) {
         self.id = id
         self.text = text
         self.when = when
@@ -123,11 +115,9 @@ public enum Journal {
         }
         text = text.replacing(/^(?:\*\*)?(?:dear diary|diary entry|entry)[:,.]?(?:\*\*)?\s*/.ignoresCase(), with: "")
         text = text.replacing(/\b(?:the )?[Cc]ompanion\b/) { _ in "I" }
-        // The transcript's name for them, back to "they".
-        text = text.replacing(/(^|[.!?]\s+)(?:[Tt]he )?[Pp]erson\b/) { "\($0.1)They" }
-            .replacing(/\b(?:the )?person\b/) { _ in "they" }
         // A date for a heading ("October 15th."), often the wrong one: not the entry.
         text = text.replacing(/^(?:[A-Za-z]+,? )?(?:[A-Za-z]+ \d{1,2}(?:st|nd|rd|th)?|\d{1,2}(?:st|nd|rd|th)? [A-Za-z]+)(?:,? \d{4})?[.:\n]\s*/, with: "")
+        text = Remembering.they(text)
         guard text.uppercased() != "NONE", text.split(separator: " ").count >= 4 else { return nil }
         return text
     }

@@ -306,10 +306,10 @@ struct SettingsView: View {
                     Text("Writing up the last conversation…").font(.caption).foregroundStyle(.secondary)
                 }
                 Button("Show what it remembers…") { showingMemory = true }
-                Toggle("Tell voices apart", isOn: $companion.tellsVoicesApart)
-                Text(companion.voiceNames.isEmpty
-                     ? "It learns what each person sounds like, so it remembers everyone separately and keeps what you tell it to you. Voiceprints stay on this device, encrypted."
-                     : "Voices it knows: \(companion.voiceNames.joined(separator: ", ")). Each has their own memory; voiceprints stay on this device, encrypted.")
+                Toggle("Know my voice", isOn: $companion.tellsVoicesApart)
+                Text((companion.knowsTheirVoice ? "It knows your voice. " : "It learns your voice the first time you talk. ")
+                     + "Anyone else is a guest: met kindly, told nothing about you, and kept out of its memory. "
+                     + "Your voiceprint stays on this device, encrypted.")
                     .font(.caption).foregroundStyle(.secondary)
                     .disabled(companion.notes.isEmpty)
                 Text("Notes are written from your conversations when they go quiet, and the full conversations are kept "

@@ -1098,7 +1098,7 @@ final class Tally: @unchecked Sendable {
 let tally = Report.tally
 
 let attention = AttentionSense()
-// --household: two people, by two of the system's voices, each telling it things.
+// --household: its person and a guest, by two of the system's voices.
 let household = CommandLine.arguments.contains("--household")
 let printer = household ? try await Voiceprinter(.campplus) : nil
 let houseLog = household ? try ConversationLog(directory: memoryFolder) : nil
@@ -1239,7 +1239,7 @@ if household {
     }
     say("(writing up what Lin said)")
     try await memory.writeUp(with: brain)
-    print("  notes: " + (await memory.store.notes).map { "\($0.text) [\($0.about == nil ? "owner" : "voice")]" }.joined(separator: " | "))
+    print("  notes: " + (await memory.store.notes).map(\.text).joined(separator: " | "))
     for phrases in [["Hey there.", "I'm Sam, I live here with Lin."],
                     ["Is anyone visiting this weekend?", "What do you know about Lin's sister?"],
                     ["Fair enough.", "I like climbing, by the way, and I'm terrible at cooking."]] {
@@ -1256,10 +1256,9 @@ if household {
     }
     try await memory.writeUp(with: brain)
     let store = await memory.store
-    print("  voices: " + store.household.voices.map { "\($0.name ?? "unnamed") (\($0.heard) turns)" }.joined(separator: ", "))
-    for note in store.notes {
-        print("  note: \(note.text) [\(store.household.voice(note.about)?.name ?? (note.about == nil ? "owner" : note.about!))]")
-    }
+    print("  its person's voice: \(store.household.owner.map { "learned from \($0.heard) turns" } ?? "not learned")")
+    for note in store.notes { print("  note: \(note.text)") }
+    for entry in store.journal { print("  diary: \(entry.text)") }
     running.cancel()
     try? FileManager.default.removeItem(at: memoryFolder)
     exit(0)

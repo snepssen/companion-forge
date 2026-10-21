@@ -46,7 +46,7 @@ public final class Voiceprinter: @unchecked Sendable {
     }
 }
 
-/// The household's voices as the conversation hears them: looked at while a
+/// Its person's voice as the conversation hears it: looked at while a
 /// reply is drafted (which may be thrown away and drafted again), and only
 /// learned from once the turn is theirs for certain, so a sentence never
 /// counts twice.
@@ -69,5 +69,4 @@ public final class VoiceSense: @unchecked Sendable {
         lock.withLock { household.hear(print, seconds: seconds) }
     }
 
-    public func name(_ id: String, _ name: String) { lock.withLock { household.name(id, name) } }
 }
