@@ -251,6 +251,7 @@ public actor Loop {
             }
             var splitter = SentenceSplitter()
             var pretended = false
+            var corrections = 0
             await withTaskCancellationHandler {
                 for await piece in pieces where !pretended {
                     if reply.id == id && reply.times.firstWords == 0 { reply.times.firstWords = Duplex.now - reply.started }
@@ -264,6 +265,16 @@ public actor Loop {
                             generation.cancel()
                             await speak(Honesty.admission, id)
                             break
+                        }
+                        // Taking itself back twice: it doesn't know; say so and stop.
+                        if Honesty.corrects(sentence) {
+                            corrections += 1
+                            if corrections >= 2 {
+                                pretended = true
+                                generation.cancel()
+                                await speak(Honesty.unsure, id)
+                                break
+                            }
                         }
                         await speak(sentence, id)
                     }

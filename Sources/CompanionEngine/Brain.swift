@@ -23,9 +23,9 @@ public actor Brain {
     private let stops: Set<Int>
     /// Of the last prompt, the tokens that had to be read and its whole length.
     public private(set) var lastPrompt = (read: 0, length: 0)
-    /// The most a reply runs to: about a minute of speech, and a stop for a
-    /// model that has started a list.
-    static let longest = 240
+    /// The most a reply runs to: about half a minute of speech. Spoken
+    /// replies are short, and a model going round in circles is stopped.
+    static let longest = 150
 
     public init(model: ChatModel, at directory: URL) async throws {
         // Variable shapes otherwise grow MLX's cache without bound; a phone has less to spare.
@@ -56,8 +56,13 @@ public actor Brain {
     @discardableResult
     public func reply(to turns: [Turn], remembering recollection: Recollection = Recollection(),
                       emit: @Sendable (String) -> Void) throws -> String {
-        try generate(Prompts.messages(turns, remembering: recollection), cache: &cache,
-                     parameters: GenerateParameters(maxTokens: Self.longest, temperature: 0.7, topP: 0.9), emit: emit)
+        let sampling = model.sampling
+        let parameters = GenerateParameters(maxTokens: Self.longest, temperature: sampling.temperature, topP: sampling.topP,
+                                            topK: sampling.topK, repetitionPenalty: sampling.repetitionPenalty,
+                                            repetitionContextSize: 64, presencePenalty: sampling.presencePenalty,
+                                            presenceContextSize: 64)
+        return try generate(Prompts.messages(turns, remembering: recollection), cache: &cache, parameters: parameters,
+                            emit: emit)
     }
 
     /// Read the conversation so far into the cache before they speak again,
@@ -126,6 +131,8 @@ enum Prompts {
     you are searching, checking or looking into something, and never make up businesses, places, opening hours, \
     prices, news or facts about where they live. If they ask for something like that, say plainly that you can't \
     do it from here, and help with what you can: ideas, thinking it through, keeping them company.
+    You are a small model and don't know everything. If you aren't sure of a fact, a word or a translation, \
+    say you're not sure instead of guessing, and never go back and forth correcting yourself.
     """
 
     /// The conversation as chat messages. Turns by the same speaker in a row

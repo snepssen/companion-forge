@@ -9,6 +9,23 @@ import Foundation
 public struct ChatModel: Pinned, Identifiable, Hashable, Sendable {
     public typealias File = PinnedFile
 
+    /// How it picks its words: each family's own recommendation, tempered
+    /// for talk. Qwen3 at Gemma's settings looped, correcting itself
+    /// sentence after sentence ("peşte… no… cină… no…").
+    public struct Sampling: Hashable, Sendable {
+        public var temperature: Float
+        public var topP: Float
+        public var topK: Int
+        public var presencePenalty: Float?
+        public var repetitionPenalty: Float?
+    }
+
+    public var sampling: Sampling {
+        id.hasPrefix("qwen")
+            ? Sampling(temperature: 0.7, topP: 0.8, topK: 20, presencePenalty: 1.0, repetitionPenalty: 1.05)
+            : Sampling(temperature: 0.7, topP: 0.95, topK: 64, presencePenalty: nil, repetitionPenalty: 1.05)
+    }
+
     public let id: String  // folder name, and what is remembered as the choice
     public let name: String
     public let tagline: String

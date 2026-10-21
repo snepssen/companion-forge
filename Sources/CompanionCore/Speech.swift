@@ -247,6 +247,22 @@ public struct EchoDelay: Sendable {
 public enum Honesty {
     public static let admission = "Actually, I can't look things up or check anything from here, sorry."
 
+    /// What it says when it catches itself going round in circles.
+    public static let unsure = "Sorry, I'm not sure of that one."
+
+    /// A sentence taking back what came before it. A small model that
+    /// doesn't know something can say "Wait, that's wrong… No… Actually…"
+    /// for as long as it is let; the second one ends the reply.
+    public static func corrects(_ sentence: String) -> Bool {
+        let lower = sentence.lowercased().trimmingCharacters(in: .whitespaces)
+        let patterns = [
+            #"^(?:no|nope|wait|hmm|oops|sorry)\b[.,!—–-]"#, #"^actually\b"#, #"\bthat's (?:wrong|not (?:it|right|the word))\b"#,
+            #"\blet me correct\b"#, #"\bstill wrong\b"#, #"\bi'm messing (?:it )?up\b"#, #"\bno[ ,]+(?:that's|it's|wait)\b"#,
+            #"\bcorrect (?:answer|word) is\b"#,
+        ]
+        return patterns.contains { lower.range(of: $0, options: .regularExpression) != nil }
+    }
+
     public static func pretends(_ sentence: String) -> Bool {
         let lower = sentence.lowercased()
         let patterns = [

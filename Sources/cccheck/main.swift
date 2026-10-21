@@ -285,6 +285,10 @@ check("pretending to search is caught", ["I am looking into local places that de
                                          "Please hold on for a moment while I check.", "I can search for places nearby.",
                                          "I think I found a few places that might be open.",
                                          "I am trying to see what options are available for you."].allSatisfy(Honesty.pretends))
+check("going back on itself is noticed", ["Wait, that's wrong.", "No, that's dinner.", "Actually, it's peşte again?",
+    "No. The correct word is prânz.", "I'm messing up."].allSatisfy(Honesty.corrects))
+check("ordinary answers aren't corrections", ["No problem, I can help with that.", "Nobody knows for sure.",
+    "Good morning!", "That's right, it's micul dejun."].allSatisfy { !Honesty.corrects($0) })
 check("helping is not pretending", ["Can I help you find a recipe?", "Do you want ideas for what to make?",
                                     "I cannot check for local deliveries.", "Let me think about that."]
     .allSatisfy { !Honesty.pretends($0) })
