@@ -171,7 +171,9 @@ enum Prompts {
     /// their last words, so everything earlier stays in the attention cache.
     static let dontAsk = "(You asked them something last time. This time don't ask: react, guess out loud, or add a thought of your own.)"
 
-    static func system(_ personality: Personality) -> String { personality.instructions + "\n\n" + rules }
+    static func system(_ personality: Personality) -> String {
+        personality.instructions + "\n\n" + rules + "\n" + Crisis.rule
+    }
 
     /// Today, for the instructions: the day and the part of it. Changes a
     /// few times a day, so the instructions are read again only then.

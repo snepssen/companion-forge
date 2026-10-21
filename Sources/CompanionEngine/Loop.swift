@@ -118,6 +118,12 @@ public actor Loop {
     private var caughtUp = 0
     /// Turns in this conversation so far (the history itself is trimmed).
     private var turnCount = 0
+    /// They may be thinking about suicide or hurting themselves: how
+    /// clearly, since which turn, and whether it has told them who they can
+    /// talk to. Held for a while after, not just the turn it was said.
+    private var crisis: (level: Crisis.Level, since: Int, told: Bool, replies: Int)?  // only ever .clear
+    static let crisisLasts = 20
+    private let region = Locale.current.region?.identifier
     /// Catching up waits until they've said a couple of things, and comes
     /// at most once in this many turns.
     static let firstCheckIn = 4
@@ -265,6 +271,19 @@ public actor Loop {
                 if case let .translate(phrase, _) = lookup { lastLookup = phrase }
                 recollection.aside = [recollection.aside, dictionary.answer(lookup)].compactMap { $0 }.joined(separator: " ")
             }
+            // In a dark place: that comes before everything else.
+            // Clear words hold it for a while; words that might only mean a
+            // hard day get one gentle "are you okay?".
+            let heard = Crisis.heard(text)
+            if heard == .clear {
+                crisis = (.clear, turnCount, crisis?.told ?? false, crisis?.replies ?? 0)
+            } else if let current = crisis, turnCount - current.since > Self.crisisLasts {
+                crisis = nil
+            }
+            if let level = crisis?.level ?? heard {
+                recollection.aside = [recollection.aside, Crisis.guidance(level, first: !(crisis?.told ?? false), region: region)]
+                    .compactMap { $0 }.joined(separator: " ")
+            }
             // What's coming up, or what they did: the calendar and the diary.
             let agenda = Agenda.ask(in: text)
             if let agenda, let memory {
@@ -273,7 +292,7 @@ public actor Loop {
             // Now and then, when nothing else is going on: something to catch up on.
             // Something coming up today or tomorrow comes first, then how
             // something went.
-            if let memory, lookup == nil, agenda == nil, reply.memory == nil, turnCount >= Self.firstCheckIn,
+            if let memory, crisis == nil, lookup == nil, agenda == nil, reply.memory == nil, turnCount >= Self.firstCheckIn,
                turnCount - caughtUp >= Self.checkInEvery || caughtUp == 0 {
                 if let (day, happening) = await memory.ahead() {
                     (recollection.coming, recollection.comingDay) = (happening, day)
@@ -310,8 +329,9 @@ public actor Loop {
                             await speak(Honesty.admission, id)
                             break
                         }
-                        // A help desk's sign-off, not a friend's: left unsaid.
-                        if Manners.isFiller(sentence) { continue }
+                        // A help desk's sign-off, not a friend's: left unsaid. (Not
+                        // while they're struggling: "I'm here if you need me" is right then.)
+                        if crisis == nil, Manners.isFiller(sentence) { continue }
                         // Taking itself back twice: it doesn't know; say so and stop.
                         if Honesty.corrects(sentence) {
                             corrections += 1
@@ -332,12 +352,18 @@ public actor Loop {
                 _ = try? await generation.value
                 try Task.checkCancellation()
             } else {
-                for sentence in splitter.finish() where !Manners.isFiller(sentence) {
+                for sentence in splitter.finish() where crisis != nil || !Manners.isFiller(sentence) {
                     if Honesty.pretends(sentence) {
                         await speak(Honesty.admission, id)
                         break
                     }
                     await speak(sentence, id)
+                }
+                // Two careful replies and the model still hasn't said who they
+                // could talk to: it says so itself, once.
+                if let current = crisis, !current.told, current.replies >= 2,
+                   !Crisis.gave(reply.said.map(\.text).joined(separator: " "), region: region) {
+                    await speak(Crisis.offer(region: region), id)
                 }
                 _ = try await generation.value
             }
@@ -373,7 +399,9 @@ public actor Loop {
         let voice = voice
         // The language they asked about, for quoted words in the reply.
         let hint = Languages.named(in: reply.person)
-        guard let (samples, mouth) = try? await Task.detached(operation: { try voice.speakTimed(sentence, hint: hint) }).value,
+        // A crisis line's number, read digit by digit.
+        let spoken = Crisis.spoken(sentence)
+        guard let (samples, mouth) = try? await Task.detached(operation: { try voice.speakTimed(spoken, hint: hint) }).value,
               !samples.isEmpty, reply.id == id, !Task.isCancelled
         else { return }
         if reply.times.firstVoice == 0 { reply.times.firstVoice = Duplex.now - reply.started }
@@ -385,7 +413,7 @@ public actor Loop {
         reply.said.append(Said(text: sentence, start: start, end: end))
         emit(.saying(sentence, mouth: mouth ?? Visemes.timeline(SpokenWord.estimate(sentence, duration: end - start)),
                      start: start))
-        emit(.mood(Tone.isCheerful(sentence) ? .cheerful : .speaking))
+        emit(.mood(crisis == nil && Tone.isCheerful(sentence) ? .cheerful : .speaking))
     }
 
     // MARK: the turn changes hands
@@ -419,6 +447,10 @@ public actor Loop {
         reply.finished = true
         let text = reply.said.map(\.text).joined(separator: " ")
         if !text.isEmpty { record(Turn(.companion, text)) }
+        if crisis != nil, !text.isEmpty {
+            crisis?.replies += 1
+            if Crisis.gave(text, region: region) { crisis?.told = true }
+        }
         if let note = reply.checkIn, let memory, CheckIn.asked(text, about: note) {
             caughtUp = turnCount
             Task { await memory.checkedIn(note.id) }

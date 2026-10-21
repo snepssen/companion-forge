@@ -17,6 +17,10 @@ public enum CheckIn {
     /// no time to it, or has happened already.
     public static func due(_ text: String, said: Date, calendar: Calendar = .current) -> Date? {
         let lower = text.lowercased()
+        // A very hard time: how they're doing, the next morning.
+        if Crisis.heard(text) != nil {
+            return calendar.date(byAdding: DateComponents(day: 1, hour: 8), to: calendar.startOfDay(for: said))
+        }
         // Told after the fact: they already said how it went.
         if happened(text) { return nil }
         let day = calendar.startOfDay(for: said)
@@ -69,7 +73,8 @@ public enum CheckIn {
     /// fits", both Gemmas found it never did; the moment is chosen in code,
     /// so the reply is simply told to.
     public static func prompt(_ note: Note, now: Date = Date()) -> String {
-        "(\(Remembering.when(note.at, now: now)) they told you: \(note.text) In this reply, after a few words about "
+        if Crisis.heard(note.text) != nil { return Crisis.checkIn(note) }
+        return "(\(Remembering.when(note.at, now: now)) they told you: \(note.text) In this reply, after a few words about "
             + "what they just said, catch up on it the way a friend suddenly remembers, like \"Oh wait, how did the "
             + "interview go?\" Only if they're upset about something, leave it for another time.)"
     }

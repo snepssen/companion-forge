@@ -626,6 +626,38 @@ let older = #"{"notes":[],"written":{"a":3}}"#
 check("memory saved before the journal still loads",
       (try? JSONDecoder().decode(MemoryStore.self, from: Data(older.utf8)))?.next(in: "a") == 3)
 
+// MARK: hard moments
+
+check("clear words are heard as clear", ["I want to kill myself.", "honestly I just want to die",
+    "I don't want to be alive anymore", "everyone would be better off without me", "I've been cutting myself again",
+    "I keep thinking about suicide", "I wish I wasn't here"].allSatisfy { Crisis.heard($0) == .clear })
+check("a hard day might be more", ["I can't do this anymore.", "What's the point of anything",
+    "Nobody would even notice", "I feel so hopeless"].allSatisfy { Crisis.heard($0) == .maybe })
+check("and ordinary things aren't", ["This bug is killing me.", "I could die for some pancakes, haha.",
+    "I'm dying to see that movie.", "I hurt my knee climbing.", "My phone died."].allSatisfy { Crisis.heard($0) == nil })
+let firstWords = Crisis.guidance(.clear, first: true, region: "GB")
+check("first: who they can talk to, read digit by digit, offered not imposed",
+      firstWords.contains("Samaritans, on 1 1 6, 1 2 3") && firstWords.contains("9 9 9")
+        && firstWords.contains("not as a way to end the conversation") && firstWords.contains("Ask gently and directly"))
+check("never what they can't do", firstWords.contains("don't tell them what they should or")
+    && !firstWords.lowercased().contains("you must") && !firstWords.lowercased().contains("you can't"))
+check("then not again unless they need it", Crisis.guidance(.clear, first: false, region: "GB").contains("say it again only if"))
+check("somewhere without a sure line: the emergency number and findahelpline",
+      Crisis.guidance(.clear, first: true, region: "BR").contains("findahelpline.com"))
+check("a hard day gets a gentle are-you-okay", Crisis.guidance(.maybe, first: true, region: "US").contains("are you okay")
+    && !Crisis.guidance(.maybe, first: true, region: "US").contains("9 8 8"))
+check("a number as the model writes it is read digit by digit",
+      Crisis.spoken("Samaritans are on 116 123, any time.") == "Samaritans are on 1 1 6, 1 2 3, any time."
+        && Crisis.spoken("Call 988.") == "Call 9 8 8." && Crisis.spoken("or 999 if you're in danger") == "or 9 9 9 if you're in danger"
+        && Crisis.spoken("It's 2026 and I'm 34.") == "It's 2026 and I'm 34.")
+check("and given is given, however it's written", Crisis.gave("Samaritans on 116 123", region: "GB")
+    && Crisis.gave("Samaritans on 1 1 6, 1 2 3", region: "GB") && !Crisis.gave("I'm here.", region: "GB"))
+check("its own offer, once, as something for them", Crisis.offer(region: "GB").contains("if you'd ever like")
+    && Crisis.offer(region: "GB").contains("1 1 6, 1 2 3"))
+let darkNote = note("They said they don't want to be alive anymore.", due: nil)
+check("the next morning, how they're doing", dueDay(darkNote.text) == "10-22 8h"
+    && CheckIn.prompt(darkNote).contains("how they're doing today") && !CheckIn.prompt(darkNote).contains("how did"))
+
 // MARK: dance
 
 // Music at 120 beats a minute: a kick each beat (a 55 Hz thump, falling

@@ -681,6 +681,8 @@ func ask(_ lines: [String]) async throws {
     let dictionary = CommandLine.arguments.contains("--no-dictionary") ? nil : Resources.dictionary.flatMap(Dictionary.init(file:))
     // --chat: one conversation, each line following the last; otherwise each on its own.
     let chat = CommandLine.arguments.contains("--chat")
+    var crisis: (level: Crisis.Level, told: Bool)?
+    var crisisReplies = 0
     var checkIn = option("--check-in").map {
         Note(text: $0, session: "earlier", turns: 0...0, at: Date().addingTimeInterval(-3 * 86_400), lasting: false, vector: [])
     }
@@ -690,11 +692,30 @@ func ask(_ lines: [String]) async throws {
         if let found { print("  dictionary: \(found)") }
         turns = (chat ? turns : []) + [Turn(.person, line)]
         var recollection = Recollection(aside: found)
+        // As the app does: clear words hold the careful reply; a hard day gets one gentle check.
+        let heard = Crisis.heard(line)
+        if heard == .clear { crisis = (.clear, crisis?.told ?? false) }
+        if let level = crisis?.level ?? heard {
+            recollection.aside = [recollection.aside, Crisis.guidance(level, first: !(crisis?.told ?? false),
+                                                                      region: option("--region") ?? Locale.current.region?.identifier)]
+                .compactMap { $0 }.joined(separator: " ")
+            print("     (\(level == .clear ? "crisis" : "maybe")\(crisis?.told == false ? ", first" : ""))")
+        }
         // --check-in "<note>": told three days ago, offered from their second line on until asked.
         if let checkIn, turns.count >= 3 { recollection.checkIn = checkIn }
         let reply = try await brain.reply(to: turns, remembering: recollection) { _ in }
-        turns.append(Turn(.companion, reply))
-        print("you: \(line)\n  it: \(reply)")
+        var said = reply
+        let region = option("--region") ?? Locale.current.region?.identifier
+        if crisis != nil {
+            crisisReplies += 1
+            if Crisis.gave(reply, region: region) { crisis?.told = true }
+            else if crisisReplies >= 2, crisis?.told == false {
+                said += " " + Crisis.offer(region: region)
+                crisis?.told = true
+            }
+        }
+        turns.append(Turn(.companion, said))
+        print("you: \(line)\n  it: \(said)")
         if let offered = recollection.checkIn {
             let asked = CheckIn.asked(reply, about: offered)
             print("     (offered the check-in\(asked ? "; asked" : ""))")
