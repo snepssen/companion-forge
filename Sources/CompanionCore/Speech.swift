@@ -274,3 +274,23 @@ public enum Honesty {
         return patterns.contains { lower.range(of: $0, options: .regularExpression) != nil }
     }
 }
+
+/// Talking like a friend, not a help desk. Small models end nearly every
+/// reply with "Is there anything else you need help with?" or "What would
+/// you like to discuss next?", which the owner found impatient: those
+/// sentences are left unsaid.
+public enum Manners {
+    public static func isFiller(_ sentence: String) -> Bool {
+        let lower = sentence.lowercased()
+        let patterns = [
+            #"\bis there anything else\b"#, #"\banything else (?:i can|you(?:'d| would)? (?:like|need|want)|on your mind)\b"#,
+            #"\bwhat (?:else )?would you like to (?:talk about|discuss|do|know|chat about)(?: next| now)?\?"#,
+            #"\bwhat(?:'s| is) next\b"#, #"\bwhat else (?:can i|would you|do you)\b"#,
+            #"\bhow (?:else )?can i (?:help|assist)\b"#, #"\blet me know if\b"#, #"\bdoes that help\b"#,
+            #"\bwould you like to know (?:more|anything else|how to say (?:anything|something) else)\b"#,
+            #"\bdo you (?:want|need) (?:to know )?anything else\b"#, #"\bfeel free to ask\b"#,
+            #"\bi(?:'m| am) here (?:to help|if you need)\b"#,
+        ]
+        return patterns.contains { lower.range(of: $0, options: .regularExpression) != nil }
+    }
+}

@@ -108,6 +108,8 @@ public actor Loop {
     private var lastReply: (text: String, end: Double)?
     static let echoTail = 1.0
     private var echoDelay = EchoDelay()
+    /// The last word looked up in the dictionary, for "and in Polish?".
+    private var lastLookup: String?
     /// After the voice stops, how long its echo is still waited out.
     static let ringing = 0.3
 
@@ -243,8 +245,13 @@ public actor Loop {
                 (reply.memory, recollection.aside) = await plan(command, with: memory)
             }
             // A word to translate or explain: the dictionary's answer, not the model's guess.
-            if let found = dictionary?.aside(for: text) {
-                recollection.aside = [recollection.aside, found].compactMap { $0 }.joined(separator: " ")
+            var lookup = Lookup.request(in: text)
+            if lookup == nil, let language = Lookup.followUp(text), let last = lastLookup {
+                lookup = .translate(last, into: language)
+            }
+            if let lookup, let dictionary {
+                if case let .translate(phrase, _) = lookup { lastLookup = phrase }
+                recollection.aside = [recollection.aside, dictionary.answer(lookup)].compactMap { $0 }.joined(separator: " ")
             }
             guard reply.id == id, !Task.isCancelled else { return }
             reply.times.recalled = Duplex.now - reply.started
@@ -273,6 +280,8 @@ public actor Loop {
                             await speak(Honesty.admission, id)
                             break
                         }
+                        // A help desk's sign-off, not a friend's: left unsaid.
+                        if Manners.isFiller(sentence) { continue }
                         // Taking itself back twice: it doesn't know; say so and stop.
                         if Honesty.corrects(sentence) {
                             corrections += 1
@@ -293,7 +302,7 @@ public actor Loop {
                 _ = try? await generation.value
                 try Task.checkCancellation()
             } else {
-                for sentence in splitter.finish() {
+                for sentence in splitter.finish() where !Manners.isFiller(sentence) {
                     if Honesty.pretends(sentence) {
                         await speak(Honesty.admission, id)
                         break

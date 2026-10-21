@@ -59,6 +59,14 @@ public enum Lookup: Equatable, Sendable {
     /// "What does köszönöm mean?", "What's the meaning of ephemeral?"
     case meaning(String)
 
+    /// "And in Polish?": another language for the last word looked up.
+    public static func followUp(_ text: String) -> String? {
+        let lower = text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let match = lower.wholeMatch(of: #/(?:and |what about |how about |now )?in (\p{L}+)[.?!]*/#),
+              let code = Languages.names[String(match.output.1)], code != "en" else { return nil }
+        return code
+    }
+
     public static func request(in text: String) -> Lookup? {
         let lower = text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
         let language = #"(\p{L}+)"#

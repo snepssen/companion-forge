@@ -50,16 +50,19 @@ public enum ModelCatalog {
     // for either app is the same files.
     public static let all: [ChatModel] = [
         // Twice the size of the others, and knows more: for a Mac with the
-        // memory (16 GB and up), not a phone. Its vision tower is left unused.
+        // memory (16 GB and up), not a phone. Qwen3.5 9B knew as much but
+        // took 7-8 s to its first words on an M1: its hybrid attention keeps
+        // a state that can't be rewound, so the whole prompt was read every
+        // turn. Qwen3 8B is plain attention and reuses its cache.
         ChatModel(
-            id: "qwen3.5-9b-4bit", name: "Qwen3.5 9B", tagline: "Knows the most · Mac with 16 GB",
-            repo: "mlx-community/Qwen3.5-9B-4bit", revision: "8b2b98c00a6b4d291155e4890773ca8f769aee53",
-            memoryGB: 6.6,
-            files: [.init(name: "chat_template.jinja", size: 7756), .init(name: "config.json", size: 3331),
-                    .init(name: "model-00001-of-00002.safetensors", size: 5_349_771_222),
-                    .init(name: "model-00002-of-00002.safetensors", size: 600_449_850),
-                    .init(name: "model.safetensors.index.json", size: 123_592), .init(name: "tokenizer.json", size: 19_989_343),
-                    .init(name: "tokenizer_config.json", size: 1139), .init(name: "vocab.json", size: 6_722_759)]),
+            id: "qwen3-8b-4bit", name: "Qwen3 8B", tagline: "Knows the most · Mac with 16 GB",
+            repo: "mlx-community/Qwen3-8B-4bit", revision: "545dc4251c05440727734bcd94334791f6ab0192",
+            memoryGB: 5.6,
+            files: [.init(name: "added_tokens.json", size: 707), .init(name: "config.json", size: 939),
+                    .init(name: "merges.txt", size: 1_671_853), .init(name: "model.safetensors", size: 4_607_835_174),
+                    .init(name: "model.safetensors.index.json", size: 64065), .init(name: "special_tokens_map.json", size: 613),
+                    .init(name: "tokenizer.json", size: 11_422_654), .init(name: "tokenizer_config.json", size: 9706),
+                    .init(name: "vocab.json", size: 2_776_833)]),
         ChatModel(
             id: "gemma-4-e4b-it-4bit", name: "Gemma 4 E4B", tagline: "Best conversation · Mac or 12 GB iPhone",
             repo: "mlx-community/gemma-4-e4b-it-4bit", revision: "475b9088d29754a3379866cf5aeb6b41acd313c2",
@@ -89,10 +92,10 @@ public enum ModelCatalog {
     ]
 
     public static var offered: [ChatModel] { all.filter(\.fits) }
-    /// Gemma 4 E4B where it fits, as before; the bigger Qwen3.5 is offered,
+    /// Gemma 4 E4B where it fits, as before; the bigger Qwen3 8B is offered,
     /// not pressed on anyone.
     public static var recommended: ChatModel {
-        offered.first { $0.id == "gemma-4-e4b-it-4bit" } ?? offered.first { $0.id != "qwen3.5-9b-4bit" } ?? all[all.count - 1]
+        offered.first { $0.id == "gemma-4-e4b-it-4bit" } ?? offered.first { $0.id != "qwen3-8b-4bit" } ?? all[all.count - 1]
     }
     public static func model(_ id: String?) -> ChatModel? { all.first { $0.id == id } }
 }
