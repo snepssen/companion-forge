@@ -19,6 +19,8 @@ import VoiceCore
 /// them out. English is that same path. A price is rewritten into the order
 /// English says it (`Speakable.currency`) before it is phonemised; an em dash
 /// is spaced by voice-core's phonemizer, which is what espeak needs to see it.
+/// A part that asks is given `QuestionTime.scale` more length, so a question
+/// runs a little longer than the same words said straight.
 public final class Voice: @unchecked Sendable {
     public let sampleRate: Double
     private let model: PiperModel
@@ -73,8 +75,11 @@ public final class Voice: @unchecked Sendable {
         let parts = isPolyglot ? self.parts(text, hint: hint) : [(text, "en")]
         var samples: [Float] = []
         var mouth: [VisemeSpan]? = []
-        for (part, language) in parts {
-            let (said, shapes) = try infer(part, language: language, pace: pace)
+        for (index, (part, language)) in parts.enumerated() {
+            // Per part: a quoted word in another language keeps its pace unless
+            // that part is what asks.
+            let question = QuestionTime.scale(for: part, in: text, last: index == parts.count - 1)
+            let (said, shapes) = try infer(part, language: language, pace: pace, question: question)
             let offset = Double(samples.count) / sampleRate
             mouth = shapes.flatMap { shapes in mouth.map { $0 + shapes.map { VisemeSpan($0.start + offset, $0.end + offset, $0.viseme) } } }
             samples += said
@@ -87,7 +92,8 @@ public final class Voice: @unchecked Sendable {
     }
 
     /// One part in one language, before the clip is peak-normalised. Under `lock`.
-    private func infer(_ text: String, language: String, pace: Double) throws -> (samples: [Float], mouth: [VisemeSpan]?) {
+    /// `question` is `QuestionTime.scale` when this part asks, otherwise 1.
+    private func infer(_ text: String, language: String, pace: Double, question: Double) throws -> (samples: [Float], mouth: [VisemeSpan]?) {
         let spoken = language == "en" ? Speakable.currency(text) : text
         let inference = model.config.inference
         var scale = inference.length_scale
@@ -106,6 +112,9 @@ public final class Voice: @unchecked Sendable {
             ids = model.ids(phonemes)
             symbols = Phonemes.layout(phonemes) { map[String($0)]?.count ?? 0 }
         }
+        // The whole part, not one phoneme: a question gets a little more time.
+        // The mouth is laid on this clip's samples, so it stays with the slower reading.
+        scale *= question
         guard ids.count > 3 else { return ([], []) }
         let result = try model.infer(ids, noiseScale: inference.noise_scale, lengthScale: scale / pace,
                                      noiseW: inference.noise_w, extraOutputs: [Self.framesOutput])

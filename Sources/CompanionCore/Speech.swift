@@ -136,6 +136,41 @@ public enum Speakable {
     }
 }
 
+/// A question is given a little more time than the same words as a statement.
+///
+/// Heard on the Mac, 2026-10-22: "You are coming with me tonight?" took 1.60 s
+/// and the statement 1.73 s, so the question was the shorter of the two. The
+/// old voice made questions 18-29% longer and stretched words ("toniiight").
+/// The aim here is roughly a tenth longer than the statement, 8-12%.
+///
+/// Piper's length scale is what asks for that. The graph rounds each phoneme
+/// up to a whole frame and gives back about 0.05 less than it was asked
+/// (x1.1 lands near x1.05, x1.4 near x1.35), so `scale` asks for 1.24 to be
+/// heard near x1.19. 1.60 x 1.19 is about 1.10 times the 1.73 s statement.
+/// One multiplier for the whole part: nothing is held phoneme by phoneme.
+public enum QuestionTime {
+    /// Multiplier on Piper's length scale for a part that asks.
+    public static let scale = 1.24
+
+    /// By its last mark, after closing quotes. "?" asks; "!" does not.
+    public static func asks(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\"'”’)»"))
+        return trimmed.last == "?"
+    }
+
+    /// The length-scale multiplier for one part of a sentence.
+    ///
+    /// A part ending in "?" asks. So does the last part when the sentence asks
+    /// but the mark was left after a quote and is not on any part ("is it
+    /// “micul dejun”?"): that word is the end of the question, so it gets the
+    /// time. A quoted word earlier in the question does not.
+    public static func scale(for part: String, in sentence: String, last: Bool) -> Double {
+        if asks(part) || (last && asks(sentence)) { return scale }
+        return 1
+    }
+}
+
 /// Whether speech heard over the reply is the reply itself, come back through
 /// the speakers and past the echo canceller.
 ///
