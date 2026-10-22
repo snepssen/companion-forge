@@ -18,8 +18,9 @@ let package = Package(
         .package(url: "https://github.com/huggingface/swift-huggingface", exact: "1.0.0"),
         .package(url: "https://github.com/snepssen/voice-core", from: "1.0.3"),
         // NSException to NSError, for AVAudioEngine, which raises instead of throwing,
-        // Silero VAD, and the microphone's sample window. The weights stay in the app.
-        .package(url: "https://github.com/snepssen/speech-core", from: "0.3.0"),
+        // Silero VAD, the microphone's sample window, and where models are kept.
+        // The weights and the catalogue stay in the app.
+        .package(url: "https://github.com/snepssen/speech-core", from: "0.4.0"),
         // CryptoKit on Apple platforms; the same API from swift-crypto elsewhere,
         // so `swift run cccheck` is not tied to a Mac.
         .package(url: "https://github.com/apple/swift-crypto.git", exact: "4.5.2"),
@@ -35,6 +36,7 @@ let package = Package(
         .executableTarget(name: "cccheck", dependencies: [
             "CompanionCore",
             .product(name: "Crypto", package: "swift-crypto", condition: .when(platforms: [.linux])),
+            .product(name: "ModelStore", package: "speech-core"),
         ]),
         // The models and the live loop: Silero VAD and Parakeet (ONNX,
         // FluidAudio), the language model and the memory's embedder (MLX),
@@ -44,6 +46,7 @@ let package = Package(
             .product(name: "ObjCExceptions", package: "speech-core"),
             .product(name: "SileroVAD", package: "speech-core"),
             .product(name: "SampleBuffer", package: "speech-core"),
+            .product(name: "ModelStore", package: "speech-core"),
             .product(name: "VoiceCore", package: "voice-core"),
             .product(name: "FluidAudio", package: "FluidAudio"),
             .product(name: "MLXLLM", package: "mlx-swift-lm"),
@@ -63,6 +66,7 @@ let package = Package(
             "CompanionCore", "CompanionEngine", "CompanionUI",
             .product(name: "SileroVAD", package: "speech-core"),
             .product(name: "SampleBuffer", package: "speech-core"),
+            .product(name: "ModelStore", package: "speech-core"),
         ]),
     ]
 )

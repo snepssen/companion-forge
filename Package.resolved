@@ -1,5 +1,5 @@
 {
-  "originHash" : "22dd13d65a20c5ec471ce98c6df43901efa371e9dcf59fcb960e1baa0698e0af",
+  "originHash" : "3713ce4db6fef1426f6494968e5fea903cc09056db5907eabb21ca691e7e0cf5",
   "pins" : [
     {
       "identity" : "eventsource",
@@ -51,8 +51,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/snepssen/speech-core",
       "state" : {
-        "revision" : "9cf029043fce7d54c9bc424505ec9a2b38b57859",
-        "version" : "0.3.0"
+        "revision" : "e999ee81028198712735290a3ca98d26a74ecf4b",
+        "version" : "0.4.0"
       }
     },
     {

@@ -3,6 +3,7 @@
 import CompanionCore
 import Dispatch
 import Foundation
+import ModelStore
 
 nonisolated(unsafe) var failures = 0
 nonisolated(unsafe) var checks = 0
@@ -1274,7 +1275,7 @@ let linked = linkModels(shared: linkShared, store: linkStore)
 let gemmaLink = linkStore.appending(path: "gemma-4-e4b-it-4bit")
 let gemmaWeights = gemmaLink.appending(path: "model.safetensors")
 check("linking exits cleanly", linked.status == 0)
-check("a missing model is linked", SharedModels.isLink(gemmaLink))
+check("a missing model is linked", ModelStore.isLink(gemmaLink))
 check("the link points at the shared model",
       (try? FileManager.default.destinationOfSymbolicLink(atPath: gemmaLink.path)).map { samePath($0, linkShared.appending(path: "gemma-4-e4b-it-4bit").path) } == true)
 check("the linked file reads as the shared weights",
@@ -1282,7 +1283,7 @@ check("the linked file reads as the shared weights",
 check("the shared weights are untouched",
       (try? String(contentsOf: linkShared.appending(path: "gemma-4-e4b-it-4bit/model.safetensors"), encoding: .utf8)) == "gemma-weights")
 check("a model already in the store is left as it is",
-      !SharedModels.isLink(linkStore.appending(path: "qwen3-8b-4bit"))
+      !ModelStore.isLink(linkStore.appending(path: "qwen3-8b-4bit"))
         && (try? String(contentsOf: linkStore.appending(path: "qwen3-8b-4bit/model.safetensors"), encoding: .utf8)) == "mine"
         && (try? String(contentsOf: linkStore.appending(path: "qwen3-8b-4bit/note.txt"), encoding: .utf8)) == "keep")
 check("that model is not reported", !linked.output.contains("qwen3-8b-4bit"))
@@ -1297,10 +1298,10 @@ check("the new model is reported", linked.output.contains("linked gemma-4-e4b-it
 let again = linkModels(shared: linkShared, store: linkStore)
 check("a second run links nothing new", again.status == 0 && !again.output.contains("linked "))
 check("a linked model's size is the file it names",
-      SharedModels.byteCount(gemmaWeights) == SharedModels.byteCount(linkShared.appending(path: "gemma-4-e4b-it-4bit/model.safetensors"))
-        && SharedModels.byteCount(gemmaWeights) == Int64("gemma-weights".utf8.count))
-check("a real directory is not a link", !SharedModels.isLink(linkStore.appending(path: "qwen3-8b-4bit")))
-check("a broken link still counts as a link", SharedModels.isLink(linkStore.appending(path: "broken-id")))
+      ModelStore.byteCount(gemmaWeights) == ModelStore.byteCount(linkShared.appending(path: "gemma-4-e4b-it-4bit/model.safetensors"))
+        && ModelStore.byteCount(gemmaWeights) == Int64("gemma-weights".utf8.count))
+check("a real directory is not a link", !ModelStore.isLink(linkStore.appending(path: "qwen3-8b-4bit")))
+check("a broken link still counts as a link", ModelStore.isLink(linkStore.appending(path: "broken-id")))
 
 let workshop = linkHome.appending(path: "workshop/interpreter-forge/models")
 let workshopStore = linkHome.appending(path: "workshop-store")
@@ -1314,17 +1315,17 @@ let workshopFresh = linkHome.appending(path: "workshop-fresh")
 let workshopLinked = linkModels(store: workshopFresh, workshop: linkHome.appending(path: "workshop").path)
 check("WORKSHOP_ROOT links a model the store does not have",
       workshopLinked.status == 0 && workshopLinked.output.contains("linked gemma-4-e4b-it-4bit ->")
-        && SharedModels.isLink(workshopFresh.appending(path: "gemma-4-e4b-it-4bit"))
+        && ModelStore.isLink(workshopFresh.appending(path: "gemma-4-e4b-it-4bit"))
         && (try? String(contentsOf: workshopFresh.appending(path: "gemma-4-e4b-it-4bit/model.safetensors"), encoding: .utf8)) == "from-workshop")
 
 let neighbour = repo.deletingLastPathComponent().appending(path: "interpreter-forge/models")
 let neighbourGemma = neighbour.appending(path: "gemma-4-e4b-it-4bit/model.safetensors")
 let neighbourStore = linkHome.appending(path: "neighbour-store")
-if (SharedModels.byteCount(neighbourGemma) ?? 0) > 0 {
+if (ModelStore.byteCount(neighbourGemma) ?? 0) > 0 {
     let found = linkModels(store: neighbourStore)
     check("the checkout's neighbour is linked when the store lacks it",
-          found.status == 0 && SharedModels.isLink(neighbourStore.appending(path: "gemma-4-e4b-it-4bit"))
-            && SharedModels.byteCount(neighbourStore.appending(path: "gemma-4-e4b-it-4bit/model.safetensors")) == SharedModels.byteCount(neighbourGemma))
+          found.status == 0 && ModelStore.isLink(neighbourStore.appending(path: "gemma-4-e4b-it-4bit"))
+            && ModelStore.byteCount(neighbourStore.appending(path: "gemma-4-e4b-it-4bit/model.safetensors")) == ModelStore.byteCount(neighbourGemma))
 } else {
     let found = linkModels(store: neighbourStore)
     check("with no neighbour, the default run links no gemma", found.status == 0 && !found.output.contains("linked gemma-4-e4b-it-4bit"))

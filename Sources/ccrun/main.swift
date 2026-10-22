@@ -35,6 +35,7 @@ import CryptoKit
 import CompanionEngine
 import CompanionUI
 import Foundation
+import ModelStore
 import SampleBuffer
 import SileroVAD
 import AVFoundation
@@ -213,7 +214,7 @@ func weeksRun() async throws {
     defer { try? FileManager.default.removeItem(at: folder) }
     let conversations = folder.appending(path: "Conversations")
     let model = ModelCatalog.model(option("--model")) ?? ModelCatalog.recommended
-    guard let directory = ModelStore.location(of: model) else { print("\(model.name) isn't downloaded"); return }
+    guard let directory = Resources.models.location(of: model) else { print("\(model.name) isn't downloaded"); return }
     let brain = try await Brain(model: model, at: directory)
     let memory = Memory(file: folder.appending(path: "memory.json"), conversations: conversations,
                         embedder: try await Embedder.load())
@@ -252,7 +253,7 @@ func journalRun() async throws {
     defer { try? FileManager.default.removeItem(at: folder) }
     let conversations = folder.appending(path: "Conversations")
     let model = ModelCatalog.model(option("--model")) ?? ModelCatalog.recommended
-    guard let directory = ModelStore.location(of: model) else { print("\(model.name) isn't downloaded"); return }
+    guard let directory = Resources.models.location(of: model) else { print("\(model.name) isn't downloaded"); return }
     let brain = try await Brain(model: model, at: directory)
     let memory = Memory(file: folder.appending(path: "memory.json"), conversations: conversations,
                         embedder: try await Embedder.load())
@@ -311,7 +312,7 @@ func memoryRun() async throws {
     defer { try? FileManager.default.removeItem(at: folder) }
     let conversations = folder.appending(path: "Conversations")
     let model = ModelCatalog.model(option("--model")) ?? ModelCatalog.recommended
-    guard let directory = ModelStore.location(of: model) else { print("\(model.name) isn't downloaded"); return }
+    guard let directory = Resources.models.location(of: model) else { print("\(model.name) isn't downloaded"); return }
     let brain = try await Brain(model: model, at: directory)
     let embedder = try await Embedder.load()
     let memory = Memory(file: folder.appending(path: "memory.json"), conversations: conversations, embedder: embedder)
@@ -383,7 +384,7 @@ func memoryRun() async throws {
 /// the window of turns it is shown.
 func longRun() async throws {
     let model = ModelCatalog.model(option("--model")) ?? ModelCatalog.recommended
-    guard let directory = ModelStore.location(of: model) else { print("\(model.name) isn't downloaded"); return }
+    guard let directory = Resources.models.location(of: model) else { print("\(model.name) isn't downloaded"); return }
     let brain = try await Brain(model: model, at: directory)
     try await brain.warmUp()
     let lines = ["Hi there.", "I had a long day at work.", "I'm a nurse, nights mostly.", "It was busy, three admissions.",
@@ -721,7 +722,7 @@ if CommandLine.arguments.contains("--spatial-check") || option("--spatial-check"
 /// how it handles what it can't do.
 func ask(_ lines: [String]) async throws {
     let model = ModelCatalog.model(option("--model")) ?? ModelCatalog.recommended
-    guard let directory = ModelStore.location(of: model) else { print("\(model.name) isn't downloaded"); return }
+    guard let directory = Resources.models.location(of: model) else { print("\(model.name) isn't downloaded"); return }
     let brain = try await Brain(model: model, at: directory)
     if let personality = option("--personality").flatMap(Personality.init(rawValue:)) { await brain.set(personality) }
     let dictionary = CommandLine.arguments.contains("--no-dictionary") ? nil : Resources.dictionary.flatMap(Dictionary.init(file:))
@@ -1099,7 +1100,7 @@ guard let voiceURL = Resources.voice, let espeak = Resources.espeakData, let vad
     exit(1)
 }
 let model = ModelCatalog.model(option("--model")) ?? ModelCatalog.recommended
-guard let directory = ModelStore.location(of: model) else {
+guard let directory = Resources.models.location(of: model) else {
     print("\(model.name) isn't downloaded: choose it in the app's settings, or pass --model with one that is")
     exit(1)
 }
