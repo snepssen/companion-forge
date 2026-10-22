@@ -1050,5 +1050,124 @@ try? FileManager.default.removeItem(at: resumeHome)
 try? FileManager.default.removeItem(at: retryHome)
 try? FileManager.default.removeItem(at: blocked)
 
+// MARK: shared models
+
+func samePath(_ a: String, _ b: String) -> Bool {
+    URL(fileURLWithPath: a).resolvingSymlinksInPath().path == URL(fileURLWithPath: b).resolvingSymlinksInPath().path
+}
+
+func writeModel(_ name: String, in folder: URL, _ bytes: String) {
+    let model = folder.appending(path: name)
+    try? FileManager.default.createDirectory(at: model, withIntermediateDirectories: true)
+    try? Data(bytes.utf8).write(to: model.appending(path: "model.safetensors"))
+}
+
+struct LinkRun { var status: Int32; var output: String }
+
+/// `scripts/fetch-models.sh` with the voice-detector fetch skipped. `shared`
+/// forces the source; `workshop` sets WORKSHOP_ROOT; with both nil the script
+/// uses ../interpreter-forge/models when that directory is there.
+func linkModels(shared: URL? = nil, store: URL, workshop: String? = nil) -> LinkRun {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/bin/bash")
+    process.arguments = [repo.appending(path: "scripts/fetch-models.sh").path]
+    var env = ProcessInfo.processInfo.environment
+    env["FETCH_MODELS_LINK_ONLY"] = "1"
+    env["FETCH_MODELS_STORE"] = store.path
+    env.removeValue(forKey: "FETCH_MODELS_SHARED")
+    env.removeValue(forKey: "WORKSHOP_ROOT")
+    if let shared { env["FETCH_MODELS_SHARED"] = shared.path }
+    if let workshop { env["WORKSHOP_ROOT"] = workshop }
+    process.environment = env
+    let pipe = Pipe()
+    process.standardOutput = pipe
+    process.standardError = pipe
+    do { try process.run() } catch { return LinkRun(status: 1, output: "\(error)") }
+    process.waitUntilExit()
+    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+    return LinkRun(status: process.terminationStatus, output: String(decoding: data, as: UTF8.self))
+}
+
+let linkHome = FileManager.default.temporaryDirectory.appending(path: "cccheck-link-\(UUID().uuidString)")
+let linkShared = linkHome.appending(path: "shared")
+let linkStore = linkHome.appending(path: "store")
+writeModel("gemma-4-e4b-it-4bit", in: linkShared, "gemma-weights")
+try? Data("cfg".utf8).write(to: linkShared.appending(path: "gemma-4-e4b-it-4bit/config.json"))
+try? FileManager.default.createDirectory(at: linkShared.appending(path: "voice"), withIntermediateDirectories: true)
+try? Data("onnx".utf8).write(to: linkShared.appending(path: "voice/snepssen.onnx"))
+try? Data("vad".utf8).write(to: linkShared.appending(path: "silero_vad.onnx"))
+writeModel("empty-model", in: linkShared, "")
+writeModel("qwen3-8b-4bit", in: linkShared, "shared-qwen")
+writeModel("qwen3-8b-4bit", in: linkStore, "mine")
+try? Data("keep".utf8).write(to: linkStore.appending(path: "qwen3-8b-4bit/note.txt"))
+let linkElsewhere = linkHome.appending(path: "elsewhere")
+try? FileManager.default.createDirectory(at: linkElsewhere, withIntermediateDirectories: true)
+try? FileManager.default.createDirectory(at: linkStore, withIntermediateDirectories: true)
+try? FileManager.default.createSymbolicLink(at: linkStore.appending(path: "bge-small-en-v1.5"), withDestinationURL: linkElsewhere)
+try? FileManager.default.createSymbolicLink(at: linkStore.appending(path: "broken-id"),
+                                            withDestinationURL: linkHome.appending(path: "missing"))
+
+let linked = linkModels(shared: linkShared, store: linkStore)
+let gemmaLink = linkStore.appending(path: "gemma-4-e4b-it-4bit")
+let gemmaWeights = gemmaLink.appending(path: "model.safetensors")
+check("linking exits cleanly", linked.status == 0)
+check("a missing model is linked", SharedModels.isLink(gemmaLink))
+check("the link points at the shared model",
+      (try? FileManager.default.destinationOfSymbolicLink(atPath: gemmaLink.path)).map { samePath($0, linkShared.appending(path: "gemma-4-e4b-it-4bit").path) } == true)
+check("the linked file reads as the shared weights",
+      (try? String(contentsOf: gemmaWeights, encoding: .utf8)) == "gemma-weights")
+check("the shared weights are untouched",
+      (try? String(contentsOf: linkShared.appending(path: "gemma-4-e4b-it-4bit/model.safetensors"), encoding: .utf8)) == "gemma-weights")
+check("a model already in the store is left as it is",
+      !SharedModels.isLink(linkStore.appending(path: "qwen3-8b-4bit"))
+        && (try? String(contentsOf: linkStore.appending(path: "qwen3-8b-4bit/model.safetensors"), encoding: .utf8)) == "mine"
+        && (try? String(contentsOf: linkStore.appending(path: "qwen3-8b-4bit/note.txt"), encoding: .utf8)) == "keep")
+check("that model is not reported", !linked.output.contains("qwen3-8b-4bit"))
+check("a directory without weights is not linked", !FileManager.default.fileExists(atPath: linkStore.appending(path: "voice").path))
+check("a loose file is not linked", !FileManager.default.fileExists(atPath: linkStore.appending(path: "silero_vad.onnx").path))
+check("an empty weight file is not a model", !FileManager.default.fileExists(atPath: linkStore.appending(path: "empty-model").path))
+check("an existing link is left as it is",
+      samePath((try? FileManager.default.destinationOfSymbolicLink(atPath: linkStore.appending(path: "bge-small-en-v1.5").path)) ?? "", linkElsewhere.path))
+check("a broken link is left as it is",
+      (try? FileManager.default.destinationOfSymbolicLink(atPath: linkStore.appending(path: "broken-id").path))?.hasSuffix("missing") == true)
+check("the new model is reported", linked.output.contains("linked gemma-4-e4b-it-4bit ->"))
+let again = linkModels(shared: linkShared, store: linkStore)
+check("a second run links nothing new", again.status == 0 && !again.output.contains("linked "))
+check("a linked model's size is the file it names",
+      SharedModels.byteCount(gemmaWeights) == SharedModels.byteCount(linkShared.appending(path: "gemma-4-e4b-it-4bit/model.safetensors"))
+        && SharedModels.byteCount(gemmaWeights) == Int64("gemma-weights".utf8.count))
+check("a real directory is not a link", !SharedModels.isLink(linkStore.appending(path: "qwen3-8b-4bit")))
+check("a broken link still counts as a link", SharedModels.isLink(linkStore.appending(path: "broken-id")))
+
+let workshop = linkHome.appending(path: "workshop/interpreter-forge/models")
+let workshopStore = linkHome.appending(path: "workshop-store")
+writeModel("gemma-4-e4b-it-4bit", in: workshop, "from-workshop")
+writeModel("gemma-4-e4b-it-4bit", in: workshopStore, "owned")
+let workshopOwned = linkModels(store: workshopStore, workshop: linkHome.appending(path: "workshop").path)
+check("WORKSHOP_ROOT leaves a model the store already has",
+      workshopOwned.status == 0 && !workshopOwned.output.contains("linked ")
+        && (try? String(contentsOf: workshopStore.appending(path: "gemma-4-e4b-it-4bit/model.safetensors"), encoding: .utf8)) == "owned")
+let workshopFresh = linkHome.appending(path: "workshop-fresh")
+let workshopLinked = linkModels(store: workshopFresh, workshop: linkHome.appending(path: "workshop").path)
+check("WORKSHOP_ROOT links a model the store does not have",
+      workshopLinked.status == 0 && workshopLinked.output.contains("linked gemma-4-e4b-it-4bit ->")
+        && SharedModels.isLink(workshopFresh.appending(path: "gemma-4-e4b-it-4bit"))
+        && (try? String(contentsOf: workshopFresh.appending(path: "gemma-4-e4b-it-4bit/model.safetensors"), encoding: .utf8)) == "from-workshop")
+
+let neighbour = repo.deletingLastPathComponent().appending(path: "interpreter-forge/models")
+let neighbourGemma = neighbour.appending(path: "gemma-4-e4b-it-4bit/model.safetensors")
+let neighbourStore = linkHome.appending(path: "neighbour-store")
+if (SharedModels.byteCount(neighbourGemma) ?? 0) > 0 {
+    let found = linkModels(store: neighbourStore)
+    check("the checkout's neighbour is linked when the store lacks it",
+          found.status == 0 && SharedModels.isLink(neighbourStore.appending(path: "gemma-4-e4b-it-4bit"))
+            && SharedModels.byteCount(neighbourStore.appending(path: "gemma-4-e4b-it-4bit/model.safetensors")) == SharedModels.byteCount(neighbourGemma))
+} else {
+    let found = linkModels(store: neighbourStore)
+    check("with no neighbour, the default run links no gemma", found.status == 0 && !found.output.contains("linked gemma-4-e4b-it-4bit"))
+}
+
+try? FileManager.default.removeItem(at: linkHome)
+
 print(failures == 0 ? "cccheck: all \(checks) checks pass" : "cccheck: \(failures) of \(checks) checks failed")
 exit(failures == 0 ? 0 : 1)

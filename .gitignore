@@ -5,6 +5,8 @@ Companion.app/
 *.xcresult
 .DS_Store
 .claude/
+__pycache__/
+*.pyc
 iOS/Resources/
 iOS/Companion.xcodeproj/
 iOS/.build/

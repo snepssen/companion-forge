@@ -161,13 +161,13 @@ VAD              Silero VAD v5, ONNX
 ASR              Parakeet Ultra through FluidAudio, on the Neural Engine
 language model   Gemma 4 E4B, 4-bit MLX
                  Qwen3 4B or Gemma 4 E2B where the phone has 8 GB
-voice            voice-polyglot's snepssen, on voice-core's Piper
-                 English through voice-forge's English snepssen and its reading
+voice            the polyglot snepssen, on voice-core's Piper
+                 English included, the same voice
 face             protoke's visor, ported to Swift, drawn as an LED panel
 memory           bge-small-en-v1.5 on MLX, over notes the model writes
 whose voice      CAM++ voiceprints through FluidAudio
 dictionary       English Wiktionary, cut down to SQLite</pre>
-<p class="caption">One chain, on the machine in front of you. The voice the build bundles is voice-polyglot's snepssen; English goes through voice-forge's English voice and its reading, on voice-core's Piper.</p>
+<p class="caption">One chain, on the machine in front of you. The voice the build bundles is voice-polyglot's snepssen, English included, on voice-core's Piper.</p>
 </div>
 
 <section id="turns">
@@ -258,7 +258,7 @@ dictionary       English Wiktionary, cut down to SQLite</pre>
   <p class="eyebrow">Other languages</p>
   <h2>It looks the word up before it answers</h2>
   <p>Asked how to say breakfast in Romanian, what &ldquo;köszönöm&rdquo; means, or &ldquo;and in Polish?&rdquo;, it looks the word up before the model answers, in an offline dictionary built from English Wiktionary, about 130 MB: translations between English and fifteen languages, and what English words mean. None of the three models knew &ldquo;micul dejun&rdquo;. Told nothing is there, it says it does not know rather than guess.</p>
-  <p>A sentence can mix languages. A quoted word in the language they named, or one Apple's detector is sure of, and a whole sentence in another language, are each spoken in their own language by the polyglot voice and joined. The English parts go through voice-forge's reading. The eight languages the voice was trained on sound like it, and the rest go through plain espeak-ng, accent and all.</p>
+  <p>A sentence can mix languages. A quoted word in the language they named, or one Apple's detector is sure of, and a whole sentence in another language, are each spoken in their own language by the polyglot voice and joined. English is that same voice. The eight languages the voice was trained on sound like it, and the rest go through plain espeak-ng, accent and all.</p>
   <h3>Who it is</h3>
   <p>Three personalities, chosen in Settings. Playful is the default: jokes, wordplay, plays along. Gentle is warm and calm. Deadpan is dry wit, delivered straight. Playful and deadpan drop the act when someone is having a hard time. Small models follow examples far better than descriptions, so each comes with a few lines in its voice. Told only the rules, it was correct and flat.</p>
 </section>
@@ -282,10 +282,9 @@ dictionary       English Wiktionary, cut down to SQLite</pre>
 
 <section id="get">
   <p class="eyebrow">Getting it</p>
-  <h2>Built from source, beside voice-forge</h2>
-  <p>voice-forge has to be checked out beside this one. The package takes its engine by path, for the English reading, and its English voice comes with it. The voice the build bundles is voice-polyglot's newest export where that checkout is beside this one, otherwise its latest GitHub release, checked against the release's SHA256SUMS and fetched again when a newer one is out. The first build also fetches English Wiktionary's extract, 523 MB, and cuts the dictionary from it. The language model is downloaded from Settings. One already in interpreter-forge's <span class="mono">models/</span> is used as it is.</p>
-  <pre class="code"><span class="c"># voice-forge beside this checkout</span>
-scripts/fetch-models.sh <span class="c"># Silero VAD, once</span>
+  <h2>Built from this checkout</h2>
+  <p>The package resolves from this checkout, plus voice-core by URL. Nothing else has to sit beside it. The voice the build bundles is voice-polyglot's snepssen, English included: its newest export where that checkout is beside this one, otherwise its latest GitHub release, checked against the release's SHA256SUMS and fetched again when a newer one is out. No separate English voice is fetched. The first build also fetches English Wiktionary's extract, 523 MB, and cuts the dictionary from it. The language model is downloaded from Settings into Application Support. Where interpreter-forge's <span class="mono">models/</span> sits beside this checkout, or <span class="mono">WORKSHOP_ROOT</span> names the folder that holds both, the fetch script symlinks each model the store doesn't already have, so the gigabytes stay where they are. One build is enough: the app finds them after that. A model already in the store is left as it is. A machine without interpreter-forge downloads as usual.</p>
+  <pre class="code">scripts/fetch-models.sh <span class="c"># Silero VAD, and links to shared models</span>
 ./build.sh               <span class="c"># checks, then Companion.app and ccrun</span>
 swift run cccheck        <span class="c"># the model-free parts, held to their cases</span>
 
