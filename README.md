@@ -414,3 +414,17 @@ one shared package once both apps settle on them.
   an iPhone 17 and an iPad with M4, but the numbers above are the Mac's.
 - Desktop beyond the Mac, and Android: llama.cpp and sherpa-onnx, as
   interpreter-forge's Android port runs Silero, Parakeet and Piper already.
+
+## Licence
+
+GPL-3.0-or-later. The text is `LICENSE`.
+
+The built app links voice-core, which includes espeak-ng (GPL-3.0-or-later,
+commit `724808c5a83f9ef95fdd0db886ba7ba537ff224a`) and the espeak-ng data
+that goes with it. That is the phonemizer the polyglot voice was trained
+through, and `build.sh` copies the data into the app. Velvet's own code is
+MIT where it can be. Anything involving Piper is GPL, and this app speaks
+through Piper, so it is GPL-3.0-or-later.
+
+`THIRD_PARTY_NOTICES.md` lists what else the app ships or links. The build
+copies that file and `LICENSE` into `Companion.app/Contents/Resources`.
