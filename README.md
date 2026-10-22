@@ -18,7 +18,7 @@ It has run on an M1 Mac, an iPhone 17 and an iPad with M4.
 | VAD | Silero VAD v5 (ONNX) |
 | ASR | Parakeet Ultra through FluidAudio, on the Neural Engine |
 | language model | Gemma 4 E4B, 4-bit MLX (Qwen3 4B or Gemma 4 E2B for 8 GB phones) |
-| voice | the polyglot snepssen from voice-polyglot (the one `build.sh` bundles), on voice-core's Piper; English parts through voice-forge's English snepssen and its reading |
+| voice | the polyglot snepssen from voice-polyglot (the one `build.sh` bundles), on voice-core's Piper, English included |
 | face | protoke's visor, ported to Swift and drawn as an LED panel |
 | memory | bge-small-en-v1.5 on MLX, over notes the language model writes |
 | whose voice | CAM++ voiceprints through FluidAudio |
@@ -68,11 +68,11 @@ listening, thinking, speaking, surprised) and blinks and breathes on its own.
 A sentence Apple's on-device sentiment score finds glad is said with
 protoke's happy eyes; its sad side isn't used, because it scores plain
 questions as sad as sympathy.
-The mouth follows what the voice says, phoneme by phoneme: the voice graph
-reports how long it spent on each one, and espeak's IPA maps to protoke's
-mouth shapes, so "my mom" is mouthed m-ah-ee, m-ah-m (`ccrun --lipsync`).
-The polyglot voice, whose layout differs, falls back to timing words by
-their spelling.
+The mouth follows what the voice says, phoneme by phoneme: espeak's IPA maps
+to protoke's mouth shapes, so "my mom" is mouthed m-ah-ee, m-ah-m
+(`ccrun --lipsync`). The polyglot voice does not report how long it spent on
+each symbol, so those shapes are shared out over the clip: vowels longest, a
+pause at punctuation.
 
 ## The window
 
@@ -284,9 +284,11 @@ A sentence can mix languages (`Languages.swift`): a quoted word in the
 language they named, or one Apple's detector is sure of, and a whole
 sentence in another language, each spoken in its own language by the
 polyglot voice and joined, so "micul dejun" is said as Romanian inside an
-English sentence. The English parts go through voice-forge's reading; the
-eight languages the voice was trained on sound like it, and the rest go
-through plain espeak-ng, accent and all.
+English sentence. English is that same voice. A price in an English part is
+read as it is said ("$4.99" as "4 dollars 99"); the sentence kept in the
+conversation stays as it was written. The eight languages the voice was
+trained on sound like it, and the rest go through plain espeak-ng, accent
+and all.
 
 ## The bundle ID
 
@@ -327,13 +329,14 @@ again next time.
     scripts/fetch-models.sh        # Silero VAD, once
     ./build.sh                     # checks, then Companion.app and ccrun
 
-voice-forge must be beside this checkout: `Package.swift` takes its engine by
-path, for the English reading, and its English voice comes with it. The voice
-`build.sh` bundles is the polyglot snepssen (`scripts/polyglot-voice.sh`):
+The package resolves from this checkout, plus voice-core by URL. Nothing else
+has to sit beside it. The voice `build.sh` and `iOS/build-ios.sh` bundle is
+the polyglot snepssen, English included (`scripts/polyglot-voice.sh`):
 voice-polyglot's newest export where it is beside this checkout, else its
 latest GitHub Release, checked against the release's SHA256SUMS and fetched
-again when a newer one is out. The first build also fetches English
-Wiktionary's extract (523 MB) and cuts the dictionary from it. The language model is
+again when a newer one is out. No separate English voice is fetched. The
+first build also fetches English Wiktionary's extract (523 MB) and cuts the
+dictionary from it. The language model is
 downloaded from the app's settings; one already in translate-core's `models/`
 is used as it is. `swift run cccheck` holds the model-free parts to their
 cases in seconds.

@@ -141,10 +141,12 @@ check("a two-word sentence waits for the next", said == ["Oh. That is great."])
 check("markdown and emoji are not said", Speakable.clean("**Hello** there 😀 friend") == "Hello there friend")
 check("nor list markers", Speakable.clean("- first thing") == "first thing")
 check("numbers are", Speakable.clean("It's 3 # 4") == "It's 3 # 4")
-
-check("a question, an exclamation, a statement", Delivery.of("How was the walk?") == .question
-    && Delivery.of("Beep! You booped me!") == .exclamation && Delivery.of("That sounds nice.") == .statement
-    && Delivery.of("Is it “micul dejun”?") == .question && Delivery.of("It's “reggeli”!”") == .exclamation)
+check("a price is said amount first", Speakable.currency("$4.99") == "4 dollars 99"
+    && Speakable.currency("£4.50") == "4 pounds 50" && Speakable.currency("$1") == "1 dollar"
+    && Speakable.currency("¥400") == "400 yen" && Speakable.currency("$4.00") == "4 dollars"
+    && Speakable.currency("$4.05") == "4 dollars oh 5" && Speakable.currency("$1,250") == "1,250 dollars"
+    && Speakable.currency("$3.14159") == "3.14159 dollars" && Speakable.currency("a $ in code") == "a $ in code"
+    && Speakable.currency("from $1 to €2.50.") == "from 1 dollar to 2 euros 50.")
 
 // MARK: echo
 

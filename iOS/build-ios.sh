@@ -5,8 +5,8 @@
 #   iOS/build-ios.sh --device iPad  # on the first connected iPad (or a name, like "iPhone 17")
 #   iOS/build-ios.sh --no-install
 #
-# The voice is the polyglot snepssen (scripts/polyglot-voice.sh); espeak-ng and its data come
-# with the voice-core package; the VAD model from models/. The language model
+# The voice is the polyglot snepssen, English included (scripts/polyglot-voice.sh); espeak-ng
+# and its data come with the voice-core package; the VAD model from models/. The language model
 # and the memory's embedder are not bundled: the app fetches them (2.3 to 5 GB,
 # best on Wi-Fi). MLX needs a real GPU, so there is no Simulator build.
 set -euo pipefail
@@ -18,7 +18,6 @@ VOICE="$("$REPO/scripts/polyglot-voice.sh")"
 "$REPO/scripts/fetch-models.sh"
 "$REPO/scripts/build-dictionary.sh"
 mkdir -p Resources
-rm -f Resources/en_US-snepssen-medium.onnx Resources/en_US-snepssen-medium.onnx.json
 cp "$VOICE" Resources/snepssen-polyglot.onnx
 cp "$VOICE.json" Resources/snepssen-polyglot.onnx.json
 cp "$REPO/models/silero_vad.onnx" "$REPO/models/dictionary.sqlite" Resources/

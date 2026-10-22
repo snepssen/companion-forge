@@ -173,7 +173,7 @@ public final class Companion {
         defer { face.set(.idle, at: Duplex.now) }
         do {
             guard let voiceURL = Resources.voice, let espeak = Resources.espeakData else {
-                throw Problem("The voice is missing: build with build.sh, or keep voice-forge beside this checkout.")
+                throw Problem("The voice is missing: build with build.sh.")
             }
             guard Resources.vad != nil else {
                 throw Problem("The voice detector is missing: run scripts/fetch-models.sh.")
