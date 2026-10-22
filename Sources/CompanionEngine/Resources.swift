@@ -2,10 +2,11 @@ import Foundation
 import ModelStore
 import VoiceCore
 
-/// Where things live: models and data in the app bundle when built by
-/// build.sh, otherwise in this checkout and, for development, voice-polyglot
-/// beside it. What the companion learns, and the language models it has
-/// fetched or linked, are in Application Support.
+/// Where things live: the voice and the voice detector in the app bundle when
+/// built by build.sh, otherwise in this checkout and, for development,
+/// voice-polyglot beside it. What the companion learns is in Application
+/// Support. iOS, and every Debug build, also look for language models there.
+/// A macOS or Linux Release build reads those only from `ModelStore.sharedRoot()`.
 public enum Resources {
     static let checkout = URL(fileURLWithPath: #filePath)  // Sources/CompanionEngine/Resources.swift
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -19,11 +20,15 @@ public enum Resources {
     public static var timing: URL { support.appending(path: "turn-timing.json") }
     public static var memory: URL { support.appending(path: "memory.json") }
 
-    /// This app's models, then this checkout's models/. A mismatched symlink is left alone.
+    /// iOS, and every Debug build: this app's models, then this checkout's
+    /// models/. A mismatched symlink is left alone. macOS and Linux Release
+    /// do not use this store.
+    #if os(iOS) || DEBUG
     public static let models = ModelStore(
         directory: support.appending(path: "Models"),
         alsoSearching: [checkout.appending(path: "models")],
         leaveLinks: true)
+    #endif
 
     static let voicePolyglot = checkout.deletingLastPathComponent().appending(path: "voice-polyglot")
     static let polyglotName = "snepssen-polyglot.onnx"

@@ -231,8 +231,7 @@ struct SettingsView: View {
                         } else if model == companion.model && companion.isDownloaded(model) {
                             Image(systemName: "checkmark").foregroundStyle(colour.color)
                         } else {
-                            Button(companion.isDownloaded(model)
-                                   ? "Use" : "Download \(ByteCountFormatter.string(fromByteCount: model.download, countStyle: .file))") {
+                            Button(companion.isDownloaded(model) ? "Use" : missingModelLabel(model)) {
                                 Task { await companion.use(model) }
                             }
                             .disabled(companion.downloading != nil)
@@ -337,6 +336,16 @@ struct SettingsView: View {
     }
 
     private func seconds(_ value: Double) -> String { String(format: "%.2f s", value) }
+
+    /// iOS and Debug offer a download. macOS and Linux Release never fetch a
+    /// model; choosing a missing one reports the shared-folder path it expected.
+    private func missingModelLabel(_ model: ChatModel) -> String {
+        #if os(iOS) || DEBUG
+        "Download \(ByteCountFormatter.string(fromByteCount: model.download, countStyle: .file))"
+        #else
+        "Not in the shared folder"
+        #endif
+    }
 
     private func learned(_ timing: PauseModel) -> String {
         let pauses = timing.pauses.count

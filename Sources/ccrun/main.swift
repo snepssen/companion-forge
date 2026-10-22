@@ -199,6 +199,27 @@ func recall() async throws {
     }
 }
 
+/// Where a chat model is. iOS and Debug keep this app's folder and the checkout.
+/// macOS and Linux Release read only `ModelStore.sharedRoot()` and do not
+/// download, move, or delete. A missing model there is reported with the path
+/// it expected.
+func chatModelDirectory(_ model: ChatModel, missing: String) -> URL? {
+    #if os(iOS) || DEBUG
+    guard let directory = Resources.models.location(of: model) else {
+        print(missing)
+        return nil
+    }
+    return directory
+    #else
+    do {
+        return try ModelPlaces.directory(of: model)
+    } catch {
+        print(error.localizedDescription)
+        return nil
+    }
+    #endif
+}
+
 /// Two earlier conversations written up by the model, then new things said
 /// to it: what comes to mind, and the reply with it. In a folder of its own,
 /// so the app's memory is untouched.
@@ -214,7 +235,7 @@ func weeksRun() async throws {
     defer { try? FileManager.default.removeItem(at: folder) }
     let conversations = folder.appending(path: "Conversations")
     let model = ModelCatalog.model(option("--model")) ?? ModelCatalog.recommended
-    guard let directory = Resources.models.location(of: model) else { print("\(model.name) isn't downloaded"); return }
+    guard let directory = chatModelDirectory(model, missing: "\(model.name) isn't downloaded") else { return }
     let brain = try await Brain(model: model, at: directory)
     let memory = Memory(file: folder.appending(path: "memory.json"), conversations: conversations,
                         embedder: try await Embedder.load())
@@ -253,7 +274,7 @@ func journalRun() async throws {
     defer { try? FileManager.default.removeItem(at: folder) }
     let conversations = folder.appending(path: "Conversations")
     let model = ModelCatalog.model(option("--model")) ?? ModelCatalog.recommended
-    guard let directory = Resources.models.location(of: model) else { print("\(model.name) isn't downloaded"); return }
+    guard let directory = chatModelDirectory(model, missing: "\(model.name) isn't downloaded") else { return }
     let brain = try await Brain(model: model, at: directory)
     let memory = Memory(file: folder.appending(path: "memory.json"), conversations: conversations,
                         embedder: try await Embedder.load())
@@ -312,7 +333,7 @@ func memoryRun() async throws {
     defer { try? FileManager.default.removeItem(at: folder) }
     let conversations = folder.appending(path: "Conversations")
     let model = ModelCatalog.model(option("--model")) ?? ModelCatalog.recommended
-    guard let directory = Resources.models.location(of: model) else { print("\(model.name) isn't downloaded"); return }
+    guard let directory = chatModelDirectory(model, missing: "\(model.name) isn't downloaded") else { return }
     let brain = try await Brain(model: model, at: directory)
     let embedder = try await Embedder.load()
     let memory = Memory(file: folder.appending(path: "memory.json"), conversations: conversations, embedder: embedder)
@@ -384,7 +405,7 @@ func memoryRun() async throws {
 /// the window of turns it is shown.
 func longRun() async throws {
     let model = ModelCatalog.model(option("--model")) ?? ModelCatalog.recommended
-    guard let directory = Resources.models.location(of: model) else { print("\(model.name) isn't downloaded"); return }
+    guard let directory = chatModelDirectory(model, missing: "\(model.name) isn't downloaded") else { return }
     let brain = try await Brain(model: model, at: directory)
     try await brain.warmUp()
     let lines = ["Hi there.", "I had a long day at work.", "I'm a nurse, nights mostly.", "It was busy, three admissions.",
@@ -722,7 +743,7 @@ if CommandLine.arguments.contains("--spatial-check") || option("--spatial-check"
 /// how it handles what it can't do.
 func ask(_ lines: [String]) async throws {
     let model = ModelCatalog.model(option("--model")) ?? ModelCatalog.recommended
-    guard let directory = Resources.models.location(of: model) else { print("\(model.name) isn't downloaded"); return }
+    guard let directory = chatModelDirectory(model, missing: "\(model.name) isn't downloaded") else { return }
     let brain = try await Brain(model: model, at: directory)
     if let personality = option("--personality").flatMap(Personality.init(rawValue:)) { await brain.set(personality) }
     let dictionary = CommandLine.arguments.contains("--no-dictionary") ? nil : Resources.dictionary.flatMap(Dictionary.init(file:))
@@ -1100,8 +1121,7 @@ guard let voiceURL = Resources.voice, let espeak = Resources.espeakData, let vad
     exit(1)
 }
 let model = ModelCatalog.model(option("--model")) ?? ModelCatalog.recommended
-guard let directory = Resources.models.location(of: model) else {
-    print("\(model.name) isn't downloaded: choose it in the app's settings, or pass --model with one that is")
+guard let directory = chatModelDirectory(model, missing: "\(model.name) isn't downloaded: choose it in the app's settings, or pass --model with one that is") else {
     exit(1)
 }
 

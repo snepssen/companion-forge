@@ -19,8 +19,9 @@ let package = Package(
         .package(url: "https://github.com/snepssen/voice-core", from: "1.0.3"),
         // NSException to NSError, for AVAudioEngine, which raises instead of throwing,
         // Silero VAD, the microphone's sample window, and where models are kept.
-        // The weights and the catalogue stay in the app.
-        .package(url: "https://github.com/snepssen/speech-core", from: "0.4.0"),
+        // The weights and the catalogue stay in the app. macOS and Linux Release
+        // read only the shared folder. iOS keeps its own store.
+        .package(url: "https://github.com/snepssen/speech-core", from: "0.4.1"),
         // CryptoKit on Apple platforms; the same API from swift-crypto elsewhere,
         // so `swift run cccheck` is not tied to a Mac.
         .package(url: "https://github.com/apple/swift-crypto.git", exact: "4.5.2"),
@@ -31,6 +32,7 @@ let package = Package(
         // echo. Held to its cases by `cccheck`.
         .target(name: "CompanionCore", dependencies: [
             .product(name: "Crypto", package: "swift-crypto", condition: .when(platforms: [.linux])),
+            .product(name: "ModelStore", package: "speech-core"),
         ]),
         // Never links a model; `swift run cccheck` stays fast and runs anywhere.
         .executableTarget(name: "cccheck", dependencies: [

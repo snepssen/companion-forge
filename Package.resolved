@@ -1,5 +1,5 @@
 {
-  "originHash" : "3713ce4db6fef1426f6494968e5fea903cc09056db5907eabb21ca691e7e0cf5",
+  "originHash" : "417b703be259b33424d484acfe20a7b158ed083c9cd5a046838fbe104457f47a",
   "pins" : [
     {
       "identity" : "eventsource",
@@ -51,17 +51,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/snepssen/speech-core",
       "state" : {
-        "revision" : "e999ee81028198712735290a3ca98d26a74ecf4b",
-        "version" : "0.4.0"
-      }
-    },
-    {
-      "identity" : "swift-argument-parser",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/apple/swift-argument-parser",
-      "state" : {
-        "revision" : "6a52f3251125d74daf04fcbd5e6f08a75d074382",
-        "version" : "1.8.2"
+        "revision" : "1c95d2a58082f43635b11cc74f3b2cebf4d74ef6",
+        "version" : "0.4.1"
       }
     },
     {
