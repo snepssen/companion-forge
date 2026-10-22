@@ -35,6 +35,7 @@ import CryptoKit
 import CompanionEngine
 import CompanionUI
 import Foundation
+import SileroVAD
 import AVFoundation
 import ImageIO
 import SwiftUI
