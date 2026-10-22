@@ -33,6 +33,23 @@ public enum Ending: String, Codable, Sendable {
     }
 }
 
+/// The words of one turn, when a follow-up arrived before the reply was heard.
+public enum Utterance {
+    /// `followUp` joined onto `earlier`. If the new transcript already starts
+    /// with those words (the whole stretch was recognised again), it stands;
+    /// otherwise the earlier words would be a turn of their own.
+    public static func join(_ earlier: String, _ followUp: String) -> String {
+        let head = earlier.trimmingCharacters(in: .whitespacesAndNewlines)
+        let tail = followUp.trimmingCharacters(in: .whitespacesAndNewlines)
+        let old = Echo.words(head)
+        let new = Echo.words(tail)
+        if old.isEmpty { return tail }
+        if new.isEmpty { return head }
+        if new.count >= old.count && Array(new.prefix(old.count)) == old { return tail }
+        return head + " " + tail
+    }
+}
+
 /// How long this person pauses mid-thought, learned from the pauses they came
 /// back from, and so how long a silence means they have finished.
 ///
@@ -100,6 +117,13 @@ public struct PauseModel: Codable, Sendable, Equatable {
         bias *= Self.biasFade
     }
 
+    /// That reply was committed and then never heard. The bookkeeping from
+    /// `replied` comes back off: it is not a reply they were given.
+    public mutating func unheard() {
+        if replies > 0 { replies -= 1 }
+        bias = min(Self.biasLimit, bias / Self.biasFade)
+    }
+
     static func quantile(_ values: [Double], _ q: Double) -> Double {
         let sorted = values.sorted()
         guard !sorted.isEmpty else { return 0 }
@@ -160,6 +184,9 @@ public struct TurnTaker: Sendable {
     /// The companion spoke without being spoken to: talking over that isn't
     /// a sign it replied too soon.
     private var unprompted = false
+    /// The reply was never heard and they were still talking. Close this
+    /// follow-up on a short pause, so a later sentence is its own turn.
+    private var closeSoon = false
 
     public init(model: PauseModel = PauseModel()) { self.model = model }
 
@@ -192,16 +219,21 @@ public struct TurnTaker: Sendable {
                 }
                 return .none
             }
-            if !drafted && gap >= model.draft() {
+            if !drafted && gap >= (closeSoon ? min(model.draft(), PauseModel.floor * 0.5) : model.draft()) {
                 drafted = true
                 return .draft
             }
-            if drafted && heard && gap >= model.wait(after: ending) {
+            // A follow-up that is finishing the same turn closes at the floor.
+            // Waiting out a full pause let the next sentence ("I don't have
+            // any eggs.") land in the same transcript.
+            let wait = closeSoon ? PauseModel.floor : model.wait(after: ending)
+            if drafted && heard && gap >= wait {
                 phase = .replying(since: t)
                 unprompted = false
                 replyPause = gap
                 drafted = false
                 heard = false
+                closeSoon = false
                 model.replied()
                 return .commit
             }
@@ -243,17 +275,58 @@ public struct TurnTaker: Sendable {
     }
 
     /// They talked over the reply from `since`; it stops, and the turn is theirs.
-    public mutating func interrupted(since: Double) {
+    ///
+    /// `now` is the stream time of the decision. The pause that ends this new
+    /// turn is measured from here, not from the start of the overlap: that
+    /// stretch is them talking, and counting it as silence closed the turn
+    /// on the first few words ("Actually, wait.") before the rest arrived.
+    public mutating func interrupted(since: Double, at now: Double) {
         if case let .replying(started) = phase, since - started < Self.cutInWindow, !unprompted {
             // They hadn't finished: that pause was inside their turn.
             model.resumed(after: replyPause)
             model.cutIn()
         }
         phase = .hearing
-        lastSpeech = since
+        lastSpeech = now
         ending = .statement
         overlapStart = nil
         overlapReported = false
+        closeSoon = false
+    }
+
+    /// The reply was committed but never became audible, and they were still
+    /// talking. The commit is taken back: that pause was inside their turn,
+    /// and it is not a cut-in, because they never heard a reply.
+    public mutating func carriedOn(at now: Double) {
+        model.unheard()
+        model.resumed(after: replyPause)
+        phase = .hearing
+        lastSpeech = now
+        ending = .statement
+        overlapStart = nil
+        overlapReported = false
+        drafted = false
+        heard = false
+        unprompted = false
+        closeSoon = true
+    }
+
+    /// The joined words are already being answered. Later speech is not more
+    /// of this turn: the reply goes ahead, and what they say now is an
+    /// interruption once it overlaps it.
+    public mutating func answer(at now: Double) {
+        switch phase {
+        case .replying, .waiting: return
+        case .hearing, .pausing:
+            phase = .replying(since: now)
+            model.replied()
+            closeSoon = false
+            drafted = false
+            heard = false
+            overlapStart = nil
+            overlapReported = false
+            unprompted = false
+        }
     }
 
     /// The companion says something of its own accord, with nobody talking;
@@ -270,5 +343,6 @@ public struct TurnTaker: Sendable {
         phase = .waiting
         overlapStart = nil
         overlapReported = false
+        closeSoon = false
     }
 }

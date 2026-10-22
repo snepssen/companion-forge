@@ -1,6 +1,7 @@
 // The model-free parts held to their cases: `swift run cccheck`. Fast, and
 // runs without a microphone or a downloaded model.
 import CompanionCore
+import Dispatch
 import Foundation
 
 nonisolated(unsafe) var failures = 0
@@ -119,15 +120,75 @@ check("a finished reply waits", echoed.phase == .waiting)
 var interrupted = taker
 t = replyStart
 actions = run(&interrupted, from: &t, 0.5, speech: true)
-if case let .overlap(since) = actions.first { interrupted.interrupted(since: since) }
+if case let .overlap(since) = actions.first { interrupted.interrupted(since: since, at: t) }
 check("an early interruption counts as a cut-in", interrupted.model.cutIns == 1)
 check("and the turn is theirs", interrupted.phase == .hearing)
 
 var late = taker
 t = replyStart + 3
 actions = run(&late, from: &t, 0.5, speech: true)
-if case let .overlap(since) = actions.first { late.interrupted(since: since) }
+if case let .overlap(since) = actions.first { late.interrupted(since: since, at: t) }
 check("a late interruption is not a cut-in", late.model.cutIns == 0)
+
+var takenEarly = TurnTaker()
+t = 0
+_ = run(&takenEarly, from: &t, 1.0, speech: true)
+_ = run(&takenEarly, from: &t, 0.5, speech: false)
+takenEarly.transcribed(.statement)
+_ = run(&takenEarly, from: &t, 1.0, speech: false)
+actions = run(&takenEarly, from: &t, 1.2, speech: true)
+if case let .overlap(since) = actions.first { takenEarly.interrupted(since: since, at: t) }
+actions = run(&takenEarly, from: &t, 0.25, speech: false)
+check("a follow-up waits out its own pause", actions.isEmpty && {
+    // Silence starts the pause clock from the decision, not a new turn.
+    if case .replying = takenEarly.phase { return false }
+    if case .waiting = takenEarly.phase { return false }
+    return true
+}())
+
+var continued = TurnTaker()
+t = 0
+_ = run(&continued, from: &t, 0.8, speech: true)
+_ = run(&continued, from: &t, 0.4, speech: false)
+continued.transcribed(.question)
+let pausesBefore = continued.model.pauses.count
+actions = run(&continued, from: &t, 1.0, speech: false)
+check("the question commits", actions == [.commit] && continued.model.replies == 1)
+continued.carriedOn(at: t)
+check("an unplayed reply is not a cut-in", continued.model.cutIns == 0)
+check("and the commit is taken back", continued.model.replies == 0)
+check("that pause stays inside the turn", continued.model.pauses.count == pausesBefore + 1)
+check("they still have the turn", continued.phase == .hearing)
+actions = run(&continued, from: &t, 0.3, speech: true)
+check("the follow-up is not a new turn", actions.isEmpty)
+actions = run(&continued, from: &t, 0.4, speech: false)
+check("the joined follow-up is drafted on a short pause", actions == [.draft])
+continued.transcribed(.statement)
+actions = run(&continued, from: &t, 0.16, speech: false)
+check("and it is answered without waiting out a whole pause", actions == [.commit] && {
+    if case .replying = continued.phase { true } else { false }
+}())
+
+var answering = TurnTaker()
+t = 0
+_ = run(&answering, from: &t, 0.8, speech: true)
+_ = run(&answering, from: &t, 0.5, speech: false)
+answering.transcribed(.statement)
+_ = run(&answering, from: &t, 0.2, speech: false)
+answering.answer(at: t)
+actions = run(&answering, from: &t, 0.5, speech: true)
+check("speech after the reply is handed on overlaps it", actions.count == 1 && {
+    if case .overlap = actions.first { true } else { false }
+}())
+check("and does not open a fresh turn", { if case .replying = answering.phase { true } else { false } }())
+
+var faded = PauseModel()
+faded.cutIn()
+let pushed = faded.bias
+faded.replied()
+check("a reply lets the cut-in penalty fade", faded.bias < pushed && faded.replies == 1)
+faded.unheard()
+check("an unheard reply puts that back", faded.replies == 0 && near(faded.bias, pushed))
 
 // MARK: sentences
 
@@ -206,6 +267,28 @@ check("echo during playback is still echo",
       && Echo.isEcho(heard: "how are you", saying: "How are you today? I hope well.", quiet: louder, playing: true))
 check("a loud different word during playback is them",
       !Echo.isEcho(heard: "Something", saying: "Pasta is easy.", quiet: false, playing: true))
+check("speech before the reply has sounded is still their turn",
+      Echo.continuesTurn(audible: false, soundedBefore: false))
+check("a gap after the reply has sounded is not",
+      !Echo.continuesTurn(audible: false, soundedBefore: true))
+check("speech over the reply sounding is not",
+      !Echo.continuesTurn(audible: true, soundedBefore: false)
+          && !Echo.continuesTurn(audible: true, soundedBefore: true))
+check("a reply that has been out for a second is no longer joined",
+      !Echo.continuesTurn(audible: false, soundedBefore: false, scheduledAgo: 1.1)
+          && Echo.continuesTurn(audible: false, soundedBefore: false, scheduledAgo: 0.02))
+check("once the joined turn is with a generation, later speech is separate",
+      !Echo.continuesTurn(audible: false, soundedBefore: false, handedOn: true)
+          && !Echo.continuesTurn(audible: false, soundedBefore: false, scheduledAgo: 1.1, handedOn: true))
+check("a follow-up joins the turn it continues",
+      Utterance.join("What should I cook tonight?", "Something quick.") == "What should I cook tonight? Something quick.")
+check("recognising the whole stretch once is not doubled",
+      Utterance.join("What should I cook tonight?", "What should I cook tonight? Something quick.")
+          == "What should I cook tonight? Something quick.")
+check("a clipped tail still keeps the start",
+      Utterance.join("What should I cook tonight?", "quick.") == "What should I cook tonight? quick."
+          && Utterance.join("Actually, wait.", "I don't have any eggs.") == "Actually, wait. I don't have any eggs."
+          && Utterance.join("Actually, wait.", "Actually, wait. I don't have any eggs.") == "Actually, wait. I don't have any eggs.")
 
 var delayed = EchoDelay()
 // Syllables: loudness rising and falling, irregularly, as speech does.
@@ -548,7 +631,7 @@ check("shaken, the eyes go wide and front", shakenPose.face.eye.roundness == 1 &
 
 var unprompted = TurnTaker()
 check("it can speak up when nobody is talking", unprompted.speakUnprompted(at: 1))
-unprompted.interrupted(since: 1.2)
+unprompted.interrupted(since: 1.2, at: 1.2)
 check("and being talked over then isn't a cut-in", unprompted.model.cutIns == 0)
 var busy = TurnTaker()
 _ = busy.tick(at: 0.1, speech: true, probability: 0.9)
@@ -889,7 +972,11 @@ check("to fast music (167 a minute) it moves every other beat",
 
 // MARK: sealing
 
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 let sealer = Sealer(key: SymmetricKey(size: .bits256))
 let secret = Data("Their mum's birthday is on 3 November.".utf8)
 check("sealed, it opens again, and doesn't show what it says",
@@ -1049,6 +1136,82 @@ try? FileManager.default.removeItem(at: clashHome)
 try? FileManager.default.removeItem(at: resumeHome)
 try? FileManager.default.removeItem(at: retryHome)
 try? FileManager.default.removeItem(at: blocked)
+
+// One generation at a time, with a stand-in for the model: cancelling waits
+// until the one in flight has finished draining, and the next does not start
+// before that. The real one drains the GPU the same way.
+final class GenerationProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var running = 0
+    private var maxRunning = 0
+    private var events: [String] = []
+
+    func enter(_ name: String) { lock.withLock { running += 1; maxRunning = max(maxRunning, running); events.append("start \(name)") } }
+    func mark(_ name: String) { lock.withLock { events.append(name) } }
+    func leave(_ name: String) { lock.withLock { running -= 1; events.append("end \(name)") } }
+    func snapshot() -> (maxRunning: Int, running: Int, events: [String]) { lock.withLock { (maxRunning, running, events) } }
+}
+
+func hold(_ milliseconds: Int) async {
+    try? await Task.sleep(for: .milliseconds(milliseconds))
+}
+
+/// A wait cancellation does not cut short, as a GPU kernel already queued is not.
+func drain(_ milliseconds: Int) async {
+    await Task.detached { try? await Task.sleep(for: .milliseconds(milliseconds)) }.value
+}
+
+func generationQueue() async {
+    let queue = GenerationQueue()
+    let probe = GenerationProbe()
+    await withCheckedContinuation { (entered: CheckedContinuation<Void, Never>) in
+        Task {
+            await queue.begin {
+                probe.enter("a")
+                entered.resume()
+                while !Task.isCancelled { await hold(5) }
+                probe.mark("drain a")
+                await drain(40)
+                probe.leave("a")
+            }
+        }
+    }
+    await queue.begin {
+        probe.enter("b")
+        probe.leave("b")
+    }
+    await queue.finished()
+    let overlapped = probe.snapshot()
+    check("a cancelled generation finishes before the next starts",
+          overlapped.maxRunning == 1
+              && overlapped.events == ["start a", "drain a", "end a", "start b", "end b"])
+
+    let stopping = GenerationQueue()
+    let stopped = GenerationProbe()
+    await withCheckedContinuation { (entered: CheckedContinuation<Void, Never>) in
+        Task {
+            await stopping.begin {
+                stopped.enter("c")
+                entered.resume()
+                while !Task.isCancelled { await hold(5) }
+                stopped.mark("drain c")
+                await drain(40)
+                stopped.leave("c")
+            }
+        }
+    }
+    await stopping.cancel()
+    let after = stopped.snapshot()
+    check("cancelling waits until the generation has left",
+          after.running == 0 && after.events == ["start c", "drain c", "end c"])
+}
+
+let generationDone = DispatchSemaphore(value: 0)
+Task.detached {
+    await generationQueue()
+    generationDone.signal()
+}
+check("the generation queue finished", generationDone.wait(timeout: .now() + 5) == .success)
 
 // MARK: shared models
 

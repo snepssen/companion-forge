@@ -492,6 +492,15 @@ public final class Companion {
             }
         case let .hushed(at):
             face.hush(at: at)
+        case .withdrew:
+            // The reply never sounded, so neither line stands: they were still
+            // on the turn that had just closed.
+            face.hush(at: now)
+            if let replyLine, let index = lines.lastIndex(where: { $0.id == replyLine }) {
+                lines.remove(at: index)
+            }
+            replyLine = nil
+            if lines.last?.speaker == .person { lines.removeLast() }
         case let .replied(text, interrupted):
             if interrupted, let index = lines.lastIndex(where: { $0.id == replyLine }) {
                 lines[index].text = text.isEmpty ? "…" : text

@@ -56,7 +56,9 @@ public actor Brain {
 
     /// A reply to the conversation so far, with what the memory brought up,
     /// its text handed to `emit` as it is written. Cancelling the task stops
-    /// it between tokens and keeps the cache.
+    /// it between tokens and keeps the cache. The GPU is idle before this
+    /// returns: the next generation must not start while a token is still
+    /// being written.
     @discardableResult
     public func reply(to turns: [Turn], remembering recollection: Recollection = Recollection(),
                       emit: @Sendable (String) -> Void) throws -> String {
@@ -74,6 +76,8 @@ public actor Brain {
     /// has just moved on, that is a few hundred tokens and over a second and
     /// a half that would otherwise come after they finish talking.
     public func anticipate(_ history: [Turn], remembering recollection: Recollection = Recollection()) throws {
+        // A cancelled reply may still be finishing a token on the GPU.
+        MLX.Stream.defaultStream.synchronize()
         // The turns the next reply will be shown, without the one not yet said.
         let next = history + [Turn(.person, "")]
         let shown = Array(next.suffix(Window.shown(next.count)).dropLast())
@@ -91,6 +95,9 @@ public actor Brain {
         try prefill(Array(prompt[start..<stable]), cache: &cache)
         cache.settle(Array(prompt.prefix(stable)))
         cache.keep(Array(prompt.prefix(stable)))
+        // Prefill returns with the cache written; the GPU is idle before the
+        // next reply is allowed to read it.
+        MLX.Stream.defaultStream.synchronize()
     }
 
     /// What stands in for their words when working out where they start.
@@ -140,6 +147,11 @@ public actor Brain {
                           keepStable: Bool = false, emit: @Sendable (String) -> Void) throws -> String {
         let prompt = try template(messages)
         try Task.checkCancellation()
+        // Idle before touching the cache. TokenIterator evaluates a token
+        // asynchronously and returns before the GPU has finished it; the next
+        // call on this model then reads buffers that call is still writing
+        // (EXC_BAD_ACCESS in the quantized matmul, on the M1).
+        MLX.Stream.defaultStream.synchronize()
         var fresh = try cache.prepare(for: prompt)
         let read = fresh.count
         if keepStable, cache.cannotRewind {
@@ -166,8 +178,13 @@ public actor Brain {
                 written = text
             }
         }
+        // The last next() has work queued on the GPU. Wait for it before the
+        // cache is trimmed, and again after, so this call doesn't return
+        // while another generation could start on the same buffers.
+        MLX.Stream.defaultStream.synchronize()
         // The cache may run a token past what was kept; hold it to what we know.
         cache.settle(prompt + produced)
+        MLX.Stream.defaultStream.synchronize()
         try Task.checkCancellation()
         return written
     }

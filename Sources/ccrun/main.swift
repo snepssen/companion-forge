@@ -1161,6 +1161,7 @@ enum Report {
         }
         say("saying: \(text)")
     case .hushed: say("hushed")
+    case .withdrew: say("still their turn")
     case let .replied(text, interrupted):
         tally.lock.withLock {
             if interrupted { tally.interruptions += 1 } else { tally.replies += 1 }

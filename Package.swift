@@ -20,14 +20,22 @@ let package = Package(
         .package(url: "https://github.com/snepssen/voice-core", from: "1.0.3"),
         // NSException to NSError, for AVAudioEngine, which raises instead of throwing.
         .package(url: "https://github.com/snepssen/speech-core", from: "0.1.0"),
+        // CryptoKit on Apple platforms; the same API from swift-crypto elsewhere,
+        // so `swift run cccheck` is not tied to a Mac.
+        .package(url: "https://github.com/apple/swift-crypto.git", exact: "4.5.2"),
     ],
     targets: [
         // Everything decided without a model: when a turn has ended, what the
         // face looks like, where a reply breaks into sentences, what is an
         // echo. Held to its cases by `cccheck`.
-        .target(name: "CompanionCore"),
+        .target(name: "CompanionCore", dependencies: [
+            .product(name: "Crypto", package: "swift-crypto", condition: .when(platforms: [.linux])),
+        ]),
         // Never links a model; `swift run cccheck` stays fast and runs anywhere.
-        .executableTarget(name: "cccheck", dependencies: ["CompanionCore"]),
+        .executableTarget(name: "cccheck", dependencies: [
+            "CompanionCore",
+            .product(name: "Crypto", package: "swift-crypto", condition: .when(platforms: [.linux])),
+        ]),
         // The models and the live loop: Silero VAD and Parakeet (ONNX,
         // FluidAudio), the language model and the memory's embedder (MLX),
         // the voice (voice-core's Piper), one echo-cancelled audio engine.
