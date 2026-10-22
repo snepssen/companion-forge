@@ -23,7 +23,7 @@
 //   ccrun --say "text" [--hint ro]  out loud, each part in its language
 //   ccrun --intonation "words" [--quiet]  as statement, question and exclamation: pitch measured, then heard
 //   ccrun --beats <audio file>  the kicks the face would dance to, and when it would
-//   ccrun --wav "a | b" --out <folder> [--plain]  each line to a WAV (--plain: the polyglot voice for English too)
+//   ccrun --wav "a | b" --out <folder>  each line to a WAV, through the polyglot voice
 //   ccrun --recall              how the embedder ranks notes, for the thresholds
 //   ccrun --long [--anticipate] a long conversation: prompt re-reading and first-word times
 //   ccrun --ask "a | b" [--chat] each said to it on its own (--chat: as one conversation), and its answer
@@ -636,11 +636,10 @@ func wav(_ samples: [Float], rate: Double) -> Data {
     return data
 }
 
-// ccrun --wav "a | b" --out <folder> [--plain]: each line to a WAV, through the
-// app's voice (--plain: the polyglot voice for English too, without voice-forge).
+// ccrun --wav "a | b" --out <folder>: each line to a WAV, through the polyglot voice.
 if let lines = option("--wav"), let out = option("--out") {
     guard let voiceURL = Resources.voice, let espeak = Resources.espeakData else { print("no voice"); exit(1) }
-    let voice = try Voice(model: voiceURL, espeakData: espeak, expressive: !CommandLine.arguments.contains("--plain"))
+    let voice = try Voice(model: voiceURL, espeakData: espeak)
     let folder = URL(filePath: out)
     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     for (n, line) in lines.split(separator: "|").map({ $0.trimmingCharacters(in: .whitespaces) }).enumerated() {
@@ -1094,7 +1093,7 @@ final class Mouth: @unchecked Sendable {
 
 let echo = Float(option("--echo") ?? "0.05") ?? 0.05
 guard let voiceURL = Resources.voice, let espeak = Resources.espeakData, let vadURL = Resources.vad else {
-    print("missing the voice or the voice detector: run scripts/fetch-models.sh, keep voice-forge beside this checkout")
+    print("missing the voice or the voice detector: run scripts/polyglot-voice.sh and scripts/fetch-models.sh")
     exit(1)
 }
 let model = ModelCatalog.model(option("--model")) ?? ModelCatalog.recommended

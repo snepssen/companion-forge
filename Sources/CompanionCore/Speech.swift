@@ -72,6 +72,68 @@ public enum Speakable {
         scalar.properties.isEmojiPresentation || scalar.value >= 0x1F000
             || (0x2600...0x27BF).contains(scalar.value) || scalar.value == 0xFE0F || scalar.value == 0x200D
     }
+
+    /// A currency symbol and the words English says for it. Yen, won and lira
+    /// do not take a plural s.
+    private static let currencies: [(symbol: Character, singular: String, plural: String)] = [
+        ("$", "dollar", "dollars"), ("£", "pound", "pounds"), ("€", "euro", "euros"),
+        ("¥", "yen", "yen"), ("₩", "won", "won"), ("₺", "lira", "lira"),
+        ("₽", "ruble", "rubles"), ("₹", "rupee", "rupees"), ("¢", "cent", "cents"),
+    ]
+
+    /// `$4.99` as English says it, "4 dollars 99", rather than symbol-first
+    /// ("dollar four point nine nine"). Exactly two digits after the point are
+    /// the minor unit ("4 dollars oh 5"); any other tail stays in the amount
+    /// ("3.14159 dollars"). `$4.00` drops the minor unit. A symbol with no
+    /// amount is left, so a bare `$` survives. The sentence kept in the
+    /// conversation is not rewritten; only English speech hears this.
+    public static func currency(_ text: String) -> String {
+        guard text.contains(where: { symbol in currencies.contains { $0.symbol == symbol } }) else { return text }
+        let chars = Array(text)
+        var out = ""
+        var index = 0
+        while index < chars.count {
+            guard let money = currencies.first(where: { $0.symbol == chars[index] }) else {
+                out.append(chars[index])
+                index += 1
+                continue
+            }
+            var end = index + 1
+            var whole = ""
+            while end < chars.count, chars[end].isNumber || (chars[end] == "," && end + 1 < chars.count && chars[end + 1].isNumber) {
+                whole.append(chars[end])
+                end += 1
+            }
+            guard !whole.isEmpty else {
+                out.append(chars[index])
+                index += 1
+                continue
+            }
+            var minor: String?
+            if end < chars.count, chars[end] == "." {
+                var after = end + 1
+                var digits = ""
+                while after < chars.count, chars[after].isNumber {
+                    digits.append(chars[after])
+                    after += 1
+                }
+                if digits.count == 2 {
+                    minor = digits
+                    end = after
+                } else if !digits.isEmpty {
+                    whole += "." + digits
+                    end = after
+                }
+            }
+            let one = whole.replacingOccurrences(of: ",", with: "") == "1"
+            out += whole + " " + (one ? money.singular : money.plural)
+            if let minor, minor != "00" {
+                out += minor.hasPrefix("0") ? " oh \(minor.dropFirst())" : " \(minor)"
+            }
+            index = end
+        }
+        return out
+    }
 }
 
 /// Whether speech heard over the reply is the reply itself, come back through
@@ -292,21 +354,5 @@ public enum Manners {
             #"\bi(?:'m| am) here (?:to help|if you need)\b"#,
         ]
         return patterns.contains { lower.range(of: $0, options: .regularExpression) != nil }
-    }
-}
-
-/// How a sentence is meant: what the voice's reading is tuned to.
-public enum Delivery: String, Sendable {
-    case statement, question, exclamation
-
-    /// By its last mark: "?" asks, "!" exclaims, anything else states.
-    public static func of(_ sentence: String) -> Delivery {
-        let trimmed = sentence.trimmingCharacters(in: .whitespacesAndNewlines)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "\"'”’)»"))
-        switch trimmed.last {
-        case "?": return .question
-        case "!": return .exclamation
-        default: return .statement
-        }
     }
 }

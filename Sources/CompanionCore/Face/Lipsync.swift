@@ -15,8 +15,9 @@ public struct VisemeSpan: Equatable, Sendable {
 
 /// The mouth from what the voice actually said: the IPA the voice was given
 /// and how many frames it spent on each symbol, rather than spelling shared
-/// out by guess. Piper's graph knows its own durations; voice-forge's export
-/// names them `/Ceil_output_0`.
+/// out by guess. The polyglot voice's export does not report those frames
+/// (`/Ceil_output_0` where a graph kept them), so each symbol's share of the
+/// clip is estimated.
 public enum Phonemes {
     /// What the mouth shows of one IPA symbol; nil for what it doesn't
     /// (t, d, k, g, n, h, stress marks, pauses), which ride on the vowels

@@ -2,14 +2,12 @@ import Foundation
 import VoiceCore
 
 /// Where things live: models and data in the app bundle when built by
-/// build.sh, otherwise in this checkout and the snepssen projects beside it,
-/// for development; what the companion learns in Application Support.
+/// build.sh, otherwise in this checkout and, for development, voice-polyglot
+/// beside it; what the companion learns in Application Support.
 public enum Resources {
     static let checkout = URL(fileURLWithPath: #filePath)  // Sources/CompanionEngine/Resources.swift
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
     static let translateCore = checkout.deletingLastPathComponent().appending(path: "translate-core")
-    static let voiceForge = checkout.deletingLastPathComponent().appending(path: "voice-forge")
-    static let voiceName = "en_US-snepssen-medium.onnx"
 
     /// What the companion keeps: learned turn timing, conversation logs, models.
     public static var support: URL {
@@ -23,9 +21,8 @@ public enum Resources {
     static let voicePolyglot = checkout.deletingLastPathComponent().appending(path: "voice-polyglot")
     static let polyglotName = "snepssen-polyglot.onnx"
 
-    /// The polyglot snepssen, which can say words in other languages; failing
-    /// that, voice-forge's English one.
-    public static var voice: URL? { polyglotVoice ?? englishVoice }
+    /// The polyglot snepssen, English included.
+    public static var voice: URL? { polyglotVoice }
 
     /// Bundled under one name; in development voice-polyglot's newest export
     /// beside this checkout, else the release scripts/polyglot-voice.sh fetched.
@@ -42,12 +39,6 @@ public enum Resources {
             if FileManager.default.fileExists(atPath: model.path) { return model }
         }
         return nil
-    }
-
-    public static var englishVoice: URL? {
-        first(bundled(voiceName),
-              voiceForge.appending(path: "macos/Sources/VoiceForgeTTS/Resources/\(voiceName)"),
-              voiceForge.appending(path: "cross-platform/resources/voices/\(voiceName)"))
     }
 
     /// voice-core's, the data every snepssen voice was trained with.

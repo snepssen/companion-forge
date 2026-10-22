@@ -3,24 +3,22 @@ import Foundation
 import NaturalLanguage
 import VoiceCore
 
-/// A Piper voice on voice-core's engine, from translate-core: the polyglot
-/// snepssen where it is found, so it can say words in other languages, else
-/// voice-forge's English one.
+/// A Piper voice on voice-core's engine: the polyglot snepssen, English
+/// included, so one voice says every language it was trained on.
 ///
-/// Leaner than Voice Forge's `VoiceEngine`, whose expression and timing layer
-/// is that app's subject and not this one's: Piper's plain id layout (`^`,
-/// each phoneme and a blank, `$`), and for a Voice Forge voice its duration
-/// input fed ones, which reproduces the stock voice exactly (`PiperModel`).
-/// `pace` divides the length scale: the graph rounds each phoneme up to a
-/// whole frame, so it delivers about half of a small request (x1.1 gives
-/// x1.05) and most of a large one (x1.4 gives x1.35), as measured in Python.
+/// Piper's plain id layout (`^`, each phoneme and a blank, `$`). `pace`
+/// divides the length scale: the graph rounds each phoneme up to a whole
+/// frame, so it delivers about half of a small request (x1.1 gives x1.05) and
+/// most of a large one (x1.4 gives x1.35), as measured in Python.
 ///
 /// A polyglot voice (voice-polyglot; its config carries a "polyglot" block)
 /// speaks `language`: text goes through `Polyphon`, the corrected espeak-ng it
 /// was trained through, one `^`...`$` run per sentence as in its training
 /// data, and each language at its own length scale. Its Suno-made languages
 /// were read faster than its English, and the scales, picked by ear, even
-/// them out.
+/// them out. English is that same path. A price is rewritten into the order
+/// English says it (`Speakable.currency`) before it is phonemised; an em dash
+/// is spaced by voice-core's phonemizer, which is what espeak needs to see it.
 public final class Voice: @unchecked Sendable {
     public let sampleRate: Double
     private let model: PiperModel
@@ -29,17 +27,11 @@ public final class Voice: @unchecked Sendable {
     private var phonemizers: [String: EspeakPhonemizer] = [:]
     private var speaking = "en"
     private let lock = NSLock()  // one ONNX run and one espeak call at a time
-    /// English with voice-forge's reading and lift, where its voice is here.
-    private let expressive: ExpressiveVoice?
 
-    /// `expressive: false` keeps English on this voice too, without
-    /// voice-forge's reading.
-    public init(model: URL, espeakData: URL, expressive: Bool = true) throws {
+    public init(model: URL, espeakData: URL) throws {
         self.model = try PiperModel(model: model)
         self.espeakData = espeakData
         sampleRate = self.model.sampleRate
-        let expressive = expressive ? ExpressiveVoice() : nil
-        self.expressive = expressive?.sampleRate == sampleRate ? expressive : nil
         _ = try phonemizer(self.model.config.espeak.voice)
     }
 
@@ -60,7 +52,8 @@ public final class Voice: @unchecked Sendable {
     }
 
     /// The graph's own rounded duration of each id, in frames, where the
-    /// export kept it (voice-forge's voices do; the name is the exporter's).
+    /// export kept that output. The polyglot voice does not, so the mouth is
+    /// timed by `Phonemes.estimatedFrames`.
     static let framesOutput = "/Ceil_output_0"
 
     /// Samples, and the mouth shapes for the phonemes said: timed by how long
@@ -80,13 +73,8 @@ public final class Voice: @unchecked Sendable {
         let parts = isPolyglot ? self.parts(text, hint: hint) : [(text, "en")]
         var samples: [Float] = []
         var mouth: [VisemeSpan]? = []
-        for (index, (part, language)) in parts.enumerated() {
-            // English through voice-forge's reading: the sentence's own kind for
-            // the part it ends with, a plain reading for the parts before.
-            let delivery = index == parts.count - 1 ? Delivery.of(text) : .statement
-            let (said, shapes) = language == "en" && pace == 1 && expressive != nil
-                ? try expressive!.render(part, delivery: delivery)
-                : try infer(part, language: language, pace: pace)
+        for (part, language) in parts {
+            let (said, shapes) = try infer(part, language: language, pace: pace)
             let offset = Double(samples.count) / sampleRate
             mouth = shapes.flatMap { shapes in mouth.map { $0 + shapes.map { VisemeSpan($0.start + offset, $0.end + offset, $0.viseme) } } }
             samples += said
@@ -98,22 +86,23 @@ public final class Voice: @unchecked Sendable {
         return (samples, samples.isEmpty ? nil : mouth)
     }
 
-    /// One part in one language, unnormalised. Under `lock`.
+    /// One part in one language, before the clip is peak-normalised. Under `lock`.
     private func infer(_ text: String, language: String, pace: Double) throws -> (samples: [Float], mouth: [VisemeSpan]?) {
+        let spoken = language == "en" ? Speakable.currency(text) : text
         let inference = model.config.inference
         var scale = inference.length_scale
         let ids: [Int]
         let symbols: [Character]
         let map = model.config.phoneme_id_map
         if let polyglot = model.config.polyglot {
-            let sentences = try Polyphon.sentences(text, language: language,
+            let sentences = try Polyphon.sentences(spoken, language: language,
                                                    espeak: phonemizer(Polyphon.espeakVoice(language)))
             ids = Polyphon.ids(sentences, map: map)
             symbols = Phonemes.layout(sentences: sentences) { map[String($0)]?.count ?? 0 }
             // Its trained languages at their own pace; the rest a little slower than English.
             scale *= polyglot.length_scale?[language] ?? (language == "en" ? 1 : 1.2)
         } else {
-            let phonemes = try phonemizer(model.config.espeak.voice).phonemize(text)
+            let phonemes = try phonemizer(model.config.espeak.voice).phonemize(spoken)
             ids = model.ids(phonemes)
             symbols = Phonemes.layout(phonemes) { map[String($0)]?.count ?? 0 }
         }

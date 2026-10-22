@@ -2,10 +2,11 @@
 # Build Companion.app.
 #
 # xcodebuild rather than `swift build`: MLX compiles Metal shaders, which only
-# Xcode's build system does. The voice is the polyglot snepssen;
-# espeak-ng and its data come with the voice-core package; Silero VAD is
-# fetched once into models/. The language model (3.5-5 GB) is not bundled: it
-# is downloaded from the app's settings into ~/Library/Application Support/
+# Xcode's build system does. The voice is the polyglot snepssen, English
+# included; there is no separate English model to fetch. espeak-ng and its
+# data come with the voice-core package; Silero VAD is fetched once into
+# models/. The language model (3.5-5 GB) is not bundled: it is
+# downloaded from the app's settings into ~/Library/Application Support/
 # Companion/Models, or found in this checkout's models/ or translate-core's.
 set -euo pipefail
 cd "$(dirname "$0")"
