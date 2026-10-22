@@ -55,6 +55,11 @@ cp "$ROOT/models/silero_vad.onnx" "$APP/Contents/Resources/"
 cp "$ROOT/models/dictionary.sqlite" "$APP/Contents/Resources/"
 cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/"  # ccrun --icon, then iconutil
 
+# The bundle ID is com.snepssen.companion, shared with the iOS app
+# (iOS/project.yml) and the Keychain service (Vault.swift: the memory key
+# is already stored there, with no access group). Preferences and saved
+# state written under the previous Mac ID, local.companion-core.companion,
+# are moved on first launch (BundleMigration).
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -62,7 +67,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <dict>
   <key>CFBundleExecutable</key><string>Companion</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
-  <key>CFBundleIdentifier</key><string>local.companion-core.companion</string>
+  <key>CFBundleIdentifier</key><string>com.snepssen.companion</string>
   <key>CFBundleName</key><string>Companion</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>0.1</string>

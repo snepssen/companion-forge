@@ -885,5 +885,123 @@ if let log = try? ConversationLog(directory: folder) {
     check("the log opens", false)
 }
 
+// MARK: bundle ID
+
+let repo = URL(filePath: #filePath).resolvingSymlinksInPath()
+    .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+func sourceText(_ path: String) -> String {
+    (try? String(contentsOf: repo.appending(path: path), encoding: .utf8)) ?? ""
+}
+let buildSh = sourceText("build.sh")
+let bundleLine = buildSh.split(separator: "\n").first { $0.contains("<key>CFBundleIdentifier</key>") }.map(String.init)
+check("the Mac bundle ID is com.snepssen.companion",
+      bundleLine?.contains("<string>\(BundleMigration.bundleID)</string>") == true)
+check("the old Mac bundle ID is not the one that gets built", bundleLine?.contains(BundleMigration.previousBundleID) != true)
+let vault = sourceText("Sources/CompanionEngine/Vault.swift")
+check("the Keychain service is still com.snepssen.companion, with no access group",
+      vault.contains("static let service = \"\(BundleMigration.bundleID)\"")
+        && !vault.contains(BundleMigration.previousBundleID) && !vault.contains("kSecAttrAccessGroup"))
+check("iOS uses the same bundle ID",
+      sourceText("iOS/project.yml").contains("PRODUCT_BUNDLE_IDENTIFIER: \(BundleMigration.bundleID)")
+        && sourceText("iOS/build-ios.sh").contains("process launch --terminate-existing --device \"$DEVICE\" \(BundleMigration.bundleID)"))
+check("Package.swift does not declare a bundle ID", !sourceText("Package.swift").contains("CFBundleIdentifier")
+    && !sourceText("Package.swift").contains(BundleMigration.previousBundleID))
+
+let migrationHome = FileManager.default.temporaryDirectory.appending(path: "cccheck-bundle-\(UUID().uuidString)")
+func migrationURL(_ path: String) -> URL {
+    path.split(separator: "/").reduce(migrationHome) { $0.appending(path: String($1)) }
+}
+func writeMigration(_ path: String, _ text: String) {
+    let url = migrationURL(path)
+    try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try? Data(text.utf8).write(to: url)
+}
+func readMigration(_ path: String) -> String? {
+    try? String(contentsOf: migrationURL(path), encoding: .utf8)
+}
+let oldPreferences = "Library/Preferences/\(BundleMigration.previousBundleID).plist"
+let newPreferences = "Library/Preferences/\(BundleMigration.bundleID).plist"
+let oldWindow = "Library/Saved Application State/\(BundleMigration.previousBundleID).savedState/windows.plist"
+let newWindow = "Library/Saved Application State/\(BundleMigration.bundleID).savedState/windows.plist"
+let learned = "Library/Application Support/Companion/memory.json"
+let decoy = "Library/Application Support/\(BundleMigration.previousBundleID)/note.txt"
+writeMigration(oldPreferences, "model=gemma")
+writeMigration(oldWindow, "frame")
+writeMigration("Library/Saved Application State/\(BundleMigration.previousBundleID).savedState/extra.txt", "kept")
+writeMigration(learned, "sealed notes")
+writeMigration(decoy, "not ours")
+let firstMove = BundleMigration.migrateMacLibrary(home: migrationHome)
+check("preferences and the saved window move", firstMove == [.moved, .moved])
+check("preferences arrived intact and the old file is gone",
+      readMigration(newPreferences) == "model=gemma" && readMigration(oldPreferences) == nil)
+check("the saved window arrived intact, every file, and the old folder is gone",
+      readMigration(newWindow) == "frame"
+        && readMigration("Library/Saved Application State/\(BundleMigration.bundleID).savedState/extra.txt") == "kept"
+        && !FileManager.default.fileExists(atPath: migrationURL("Library/Saved Application State/\(BundleMigration.previousBundleID).savedState").path))
+check("Application Support/Companion is not moved", readMigration(learned) == "sealed notes")
+check("Application Support named with the old bundle ID is not taken", readMigration(decoy) == "not ours")
+check("a second launch finds nothing to move", BundleMigration.migrateMacLibrary(home: migrationHome) == [.absent, .absent]
+    && readMigration(newPreferences) == "model=gemma")
+
+let clashHome = FileManager.default.temporaryDirectory.appending(path: "cccheck-bundle-clash-\(UUID().uuidString)")
+func clashURL(_ path: String) -> URL {
+    path.split(separator: "/").reduce(clashHome) { $0.appending(path: String($1)) }
+}
+func writeClash(_ path: String, _ text: String) {
+    let url = clashURL(path)
+    try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try? Data(text.utf8).write(to: url)
+}
+writeClash(oldPreferences, "the old model")
+writeClash(newPreferences, "already chosen")
+writeClash(oldWindow, "old-frame")
+writeClash(newWindow, "new-frame")
+let clash = BundleMigration.migrateMacLibrary(home: clashHome)
+check("an existing different preferences file is left alone, and so is the old one",
+      clash == [.leftInPlace, .leftInPlace]
+        && (try? String(contentsOf: clashURL(oldPreferences), encoding: .utf8)) == "the old model"
+        && (try? String(contentsOf: clashURL(newPreferences), encoding: .utf8)) == "already chosen"
+        && (try? String(contentsOf: clashURL(oldWindow), encoding: .utf8)) == "old-frame"
+        && (try? String(contentsOf: clashURL(newWindow), encoding: .utf8)) == "new-frame")
+
+let resumeHome = FileManager.default.temporaryDirectory.appending(path: "cccheck-bundle-resume-\(UUID().uuidString)")
+let resumeSource = resumeHome.appending(path: "old.plist")
+let resumeDestination = resumeHome.appending(path: "new.plist")
+try? FileManager.default.createDirectory(at: resumeHome, withIntermediateDirectories: true)
+try? Data("copied".utf8).write(to: resumeSource)
+try? FileManager.default.copyItem(at: resumeSource, to: resumeDestination)
+check("a copy that landed and was not yet deleted finishes the move",
+      BundleMigration.moveVerified(from: resumeSource, to: resumeDestination) == .moved
+        && !FileManager.default.fileExists(atPath: resumeSource.path)
+        && (try? String(contentsOf: resumeDestination, encoding: .utf8)) == "copied")
+
+let retryHome = FileManager.default.temporaryDirectory.appending(path: "cccheck-bundle-retry-\(UUID().uuidString)")
+let retrySource = retryHome.appending(path: "old.plist")
+let retryDestination = retryHome.appending(path: "Library/new.plist")
+try? FileManager.default.createDirectory(at: retryHome.appending(path: "Library"), withIntermediateDirectories: true)
+try? Data("real".utf8).write(to: retrySource)
+try? Data("half".utf8).write(to: retryDestination.appendingPathExtension("migrating"))
+check("a half-written copy is redone from the source",
+      BundleMigration.moveVerified(from: retrySource, to: retryDestination) == .moved
+        && (try? String(contentsOf: retryDestination, encoding: .utf8)) == "real"
+        && !FileManager.default.fileExists(atPath: retrySource.path)
+        && !FileManager.default.fileExists(atPath: retryDestination.appendingPathExtension("migrating").path))
+
+let blocked = FileManager.default.temporaryDirectory.appending(path: "cccheck-bundle-blocked-\(UUID().uuidString)")
+try? FileManager.default.createDirectory(at: blocked, withIntermediateDirectories: true)
+let blockedParent = blocked.appending(path: "not-a-directory")
+let blockedSource = blocked.appending(path: "old.plist")
+try? Data("x".utf8).write(to: blockedParent)
+try? Data("keep".utf8).write(to: blockedSource)
+check("a copy that cannot be written leaves the source",
+      BundleMigration.moveVerified(from: blockedSource, to: blockedParent.appending(path: "nested.plist")) == .unverified
+        && (try? String(contentsOf: blockedSource, encoding: .utf8)) == "keep")
+
+try? FileManager.default.removeItem(at: migrationHome)
+try? FileManager.default.removeItem(at: clashHome)
+try? FileManager.default.removeItem(at: resumeHome)
+try? FileManager.default.removeItem(at: retryHome)
+try? FileManager.default.removeItem(at: blocked)
+
 print(failures == 0 ? "cccheck: all \(checks) checks pass" : "cccheck: \(failures) of \(checks) checks failed")
 exit(failures == 0 ? 0 : 1)
