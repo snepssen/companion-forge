@@ -209,13 +209,24 @@ public enum Echo {
         return isEcho(heard: heard, saying: saying) || quiet == true || unsure
     }
 
+    /// How long after the voice was scheduled it counts as heard, even when
+    /// this one window looks silent. A reply queued a moment ago has not been
+    /// heard; one that has been out for a second has.
+    public static let heardAfter = 0.4
+
     /// Speech over a reply that has not yet made a sound is the rest of their
-    /// turn, not a new one and not a cut-in. `audible` is this overlap's own
-    /// window; `soundedBefore` is whether the reply had already been heard
-    /// before they started. A gap after it has sounded is still an
-    /// interruption: echo protection during real playback is unchanged.
-    public static func continuesTurn(audible: Bool, soundedBefore: Bool) -> Bool {
-        !audible && !soundedBefore
+    /// turn, not a new one and not a cut-in.
+    ///
+    /// `audible` is this overlap's own window. `soundedBefore` is whether any
+    /// of the reply has been heard by the time we decide. `scheduledAgo` is
+    /// how long ago its voice was handed to the speakers, if it was.
+    /// `handedOn` means the joined words are already with a new generation:
+    /// later speech is an interruption or echo, and that reply still gets said.
+    /// A gap after playback has begun is still an interruption.
+    public static func continuesTurn(audible: Bool, soundedBefore: Bool, scheduledAgo: Double? = nil, handedOn: Bool = false) -> Bool {
+        if handedOn || audible || soundedBefore { return false }
+        if let scheduledAgo, scheduledAgo >= heardAfter { return false }
+        return true
     }
 
     static func words(_ text: String) -> [String] {

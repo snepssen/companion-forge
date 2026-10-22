@@ -184,6 +184,9 @@ public struct TurnTaker: Sendable {
     /// The companion spoke without being spoken to: talking over that isn't
     /// a sign it replied too soon.
     private var unprompted = false
+    /// The reply was never heard and they were still talking. Close this
+    /// follow-up on a short pause, so a later sentence is its own turn.
+    private var closeSoon = false
 
     public init(model: PauseModel = PauseModel()) { self.model = model }
 
@@ -216,16 +219,21 @@ public struct TurnTaker: Sendable {
                 }
                 return .none
             }
-            if !drafted && gap >= model.draft() {
+            if !drafted && gap >= (closeSoon ? min(model.draft(), PauseModel.floor * 0.5) : model.draft()) {
                 drafted = true
                 return .draft
             }
-            if drafted && heard && gap >= model.wait(after: ending) {
+            // A follow-up that is finishing the same turn closes at the floor.
+            // Waiting out a full pause let the next sentence ("I don't have
+            // any eggs.") land in the same transcript.
+            let wait = closeSoon ? PauseModel.floor : model.wait(after: ending)
+            if drafted && heard && gap >= wait {
                 phase = .replying(since: t)
                 unprompted = false
                 replyPause = gap
                 drafted = false
                 heard = false
+                closeSoon = false
                 model.replied()
                 return .commit
             }
@@ -283,6 +291,7 @@ public struct TurnTaker: Sendable {
         ending = .statement
         overlapStart = nil
         overlapReported = false
+        closeSoon = false
     }
 
     /// The reply was committed but never became audible, and they were still
@@ -299,6 +308,25 @@ public struct TurnTaker: Sendable {
         drafted = false
         heard = false
         unprompted = false
+        closeSoon = true
+    }
+
+    /// The joined words are already being answered. Later speech is not more
+    /// of this turn: the reply goes ahead, and what they say now is an
+    /// interruption once it overlaps it.
+    public mutating func answer(at now: Double) {
+        switch phase {
+        case .replying, .waiting: return
+        case .hearing, .pausing:
+            phase = .replying(since: now)
+            model.replied()
+            closeSoon = false
+            drafted = false
+            heard = false
+            overlapStart = nil
+            overlapReported = false
+            unprompted = false
+        }
     }
 
     /// The companion says something of its own accord, with nobody talking;
@@ -315,5 +343,6 @@ public struct TurnTaker: Sendable {
         phase = .waiting
         overlapStart = nil
         overlapReported = false
+        closeSoon = false
     }
 }

@@ -136,6 +136,13 @@ public actor Loop {
     /// Words already committed, when the reply never sounded and they kept
     /// talking. The next transcript is joined onto them.
     private var carried: String?
+    /// Those joined words have been given to a generation. Later speech is
+    /// an interruption or echo, and this reply is still spoken.
+    private var handedOn = false
+    /// Speech that arrived after that hand-off, before the reply was audible.
+    /// Kept so the interruption, once the voice is out, starts at the
+    /// beginning of the sentence rather than wherever we noticed it.
+    private var heldOverlap: Double?
     private var echoLevel: EchoLevel
     /// The last reply, what of it was said and when its voice stopped: its
     /// echo can open the next turn.
@@ -244,6 +251,7 @@ public actor Loop {
                 listenForEcho(samples, behind: available - processed, at: t)
                 if speech { listenForWhere() }
                 await act(taker.tick(at: t, speech: speech, probability: vad.probability), at: t)
+                releaseHeldOverlap()
             }
             finishIfSaid()
             // Keep what a turn could still need; a minute is more than any.
@@ -259,11 +267,21 @@ public actor Loop {
             break
         case let .turnStarted(at):
             carried = nil
+            handedOn = false
+            heldOverlap = nil
             turnStart = max(0, Int(at * 16_000) - Self.preroll)
             emit(.mood(.listening))
         case .draft:
             await startDraft()
         case .abandon:
+            // The joined turn is already being written. Keep that generation;
+            // what they are saying now overlaps the reply instead of being
+            // stitched onto the words it was given.
+            if handedOn {
+                taker.answer(at: t)
+                if !reply.committed, !reply.person.isEmpty { commit() }
+                break
+            }
             reply = Reply(id: reply.id + 1)
             await generations.cancel()
             emit(.mood(.listening))
@@ -318,6 +336,9 @@ public actor Loop {
             reply.seconds = Double(samples.count) / 16_000
             reply.loudness = samples.isEmpty ? 0 : (samples.reduce(0) { $0 + $1 * $1 } / Float(samples.count)).squareRoot()
         }
+        // From here the captured words are what gets answered. Speech after
+        // this sample is not part of them.
+        if carried != nil { handedOn = true }
         await generations.begin { await self.write(id, samples) }
     }
 
@@ -342,6 +363,8 @@ public actor Loop {
                 text = Utterance.join(earlier, text)
             }
             if text.isEmpty {
+                handedOn = false
+                heldOverlap = nil
                 taker.discard()
                 reply = Reply(id: id + 1)
                 emit(.mood(.idle))
@@ -352,14 +375,25 @@ public actor Loop {
             // A turn that had already been accepted stays one, whatever the
             // follow-up's confidence. A fresh turn still has to be worth answering.
             if carried == nil, !wakes(text, confidence: recognised.confidence) {
+                handedOn = false
+                heldOverlap = nil
                 taker.discard()
                 reply = Reply(id: id + 1)
                 emit(.ignored(text))
                 emit(.mood(.idle))
                 return
             }
+            let joining = carried != nil
             taker.transcribed(Ending.of(text))
             reply.person = text
+            // Answer as soon as the follow-up is known. Waiting out the rest
+            // of the pause let the next sentence join this one, and cancelling
+            // here left nobody answering.
+            if joining {
+                handedOn = true
+                commit()
+                taker.answer(at: Double(processed) / 16_000)
+            }
             reply.guest = guestTalking
             var sureOfVoice = false
             if let voices, let print = reply.print {
@@ -551,6 +585,9 @@ public actor Loop {
     // MARK: the turn changes hands
 
     private func commit() {
+        // The follow-up's write may already have committed, once the words
+        // were known; a later pause must not say them again.
+        guard !reply.committed else { return }
         // Joined into reply.person already, if this turn was a follow-up.
         carried = nil
         reply.committed = true
@@ -635,6 +672,8 @@ public actor Loop {
         // open until they have, or they would open it.
         if let end = reply.said.last?.end, Duplex.now < end + echoDelay.delay + Self.ringing { return }
         keepTheirs()
+        handedOn = false
+        heldOverlap = nil
         reply.finished = true
         let text = reply.said.map(\.text).joined(separator: " ")
         if !text.isEmpty { record(Turn(.companion, text)) }
@@ -689,13 +728,17 @@ public actor Loop {
             taker.overlapWasEcho()
             return
         }
-        let soundedBefore = reply.soundedAt.map { $0 <= since } ?? false
-        // Nothing of the reply had been heard: they hadn't finished, and the
-        // follow-up belongs with the words already committed. A second
-        // follow-up can arrive before those words have been written down;
-        // the ones carried forward still belong to this turn.
-        if Echo.continuesTurn(audible: playing, soundedBefore: soundedBefore),
+        let sounded = reply.soundedAt != nil
+        let scheduledAgo = reply.said.map(\.start).min().map { now - $0 }
+        let playbackBegun = sounded || playing || (scheduledAgo.map { $0 >= Echo.heardAfter } ?? false)
+        // Only a reply that has not been heard, and whose words are not
+        // already with a generation. Playback — a sounded frame, or the
+        // voice having been out for a moment — and a handed-on reply both
+        // take the ordinary interruption path below.
+        if Echo.continuesTurn(audible: playing, soundedBefore: sounded, scheduledAgo: scheduledAgo, handedOn: handedOn),
            !reply.person.isEmpty || carried != nil {
+            handedOn = false
+            heldOverlap = nil
             if !reply.person.isEmpty { carried = reply.person }
             audio.silence()
             let next = reply.id + 1
@@ -709,10 +752,19 @@ public actor Loop {
             anticipate()
             return
         }
+        // The joined turn is already being answered, and nothing of it has
+        // been heard. Cancelling it now is how a run goes quiet for the rest
+        // of the script. Hold this sentence and interrupt once the voice is out.
+        if handedOn, !playbackBegun {
+            heldOverlap = min(heldOverlap ?? since, since)
+            return
+        }
+        heldOverlap = nil
         audio.silence()
         let said = reply.said.filter { $0.start <= now }.map(\.text).joined(separator: " ")
         keepTheirs(waitingForVoice: false)
         carried = nil
+        handedOn = false
         let next = reply.id + 1
         reply = Reply(id: next)
         await generations.cancel()
@@ -726,6 +778,17 @@ public actor Loop {
         emit(.timing(taker.model))
         emit(.mood(.listening))
         anticipate()
+    }
+
+    /// An overlap that arrived before a handed-on reply was audible.
+    /// Once the voice is out, that sentence interrupts from where it began.
+    private func releaseHeldOverlap() {
+        guard let since = heldOverlap, handedOn, case .replying = taker.phase else { return }
+        let ago = reply.said.map(\.start).min().map { Duplex.now - $0 }
+        let begun = reply.soundedAt != nil || (ago.map { $0 >= Echo.heardAfter } ?? false)
+        guard begun else { return }
+        heldOverlap = nil
+        check(overlapSince: since, reply: reply.id)
     }
 
     /// Say something nobody asked for (being shaken, say), if nobody is

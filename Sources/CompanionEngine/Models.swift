@@ -1,3 +1,4 @@
+import CompanionCore
 import Foundation
 
 /// A language model the companion can talk with, pinned to a revision.
@@ -137,14 +138,14 @@ public struct EmbedderModel: Pinned {
 
 /// Models on this device: fetched file by file from their pinned revision into
 /// Application Support, sizes checked so a cut-off download is fetched again
-/// rather than loaded, and kept out of backups. For development, this
-/// checkout's models/ and interpreter-forge's beside it count too.
+/// rather than loaded, and kept out of backups. A symlink counts: the size is
+/// the file it names, which is how a model linked by `scripts/fetch-models.sh`
+/// is found. For development, this checkout's models/ count too.
 public enum ModelStore {
     static var directory: URL { Resources.support.appending(path: "Models") }
 
     static func folders(for model: some Pinned) -> [URL] {
-        [directory, Resources.checkout.appending(path: "models"), Resources.interpreterForge.appending(path: "models")]
-            .map { $0.appending(path: model.id) }
+        [directory, Resources.checkout.appending(path: "models")].map { $0.appending(path: model.id) }
     }
 
     public static func location(of model: some Pinned) -> URL? {
@@ -158,6 +159,11 @@ public enum ModelStore {
     public static func download(_ model: some Pinned, progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
         if let found = location(of: model) { return found }
         let folder = directory.appending(path: model.id)
+        // A link that doesn't match is left alone. Writing through it would
+        // change the files it names.
+        if SharedModels.isLink(folder) {
+            throw Problem("\(model.id) in the model store is a link, and its files are not the ones this build expects. The link was left as it is.")
+        }
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         var values = URLResourceValues()
         values.isExcludedFromBackup = true
@@ -188,9 +194,7 @@ public enum ModelStore {
         return folder
     }
 
-    static func fileSize(_ url: URL) -> Int64? {
-        (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.int64Value
-    }
+    static func fileSize(_ url: URL) -> Int64? { SharedModels.byteCount(url) }
 }
 
 /// One file, with the bytes written so far reported as they arrive.
