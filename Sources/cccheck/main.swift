@@ -167,9 +167,37 @@ for _ in 0..<8 { level.hear(mic: tone.map { $0 * 0.05 }, played: tone) }
 check("the leak is learned", level.leak.map { near($0, 0.05, 0.001) } ?? false)
 check("its own echo is echo", level.isEcho(mic: tone.map { $0 * 0.06 }, played: tone) == true)
 check("a voice much louder than it is not", level.isEcho(mic: tone.map { $0 * 0.4 }, played: tone) == false)
-check("nothing playing, no verdict", level.isEcho(mic: tone, played: [Float](repeating: 0, count: 100)) == nil)
+let silence = [Float](repeating: 0, count: tone.count)
+check("nothing playing, no verdict", level.isEcho(mic: tone, played: silence) == nil)
 level.hear(mic: tone, played: tone)
 check("one loud interruption barely moves it", level.leak.map { near($0, 0.05, 0.001) } ?? false)
+
+let quietGap = level.isEcho(mic: tone, played: silence)
+let gap = EchoLevel.isAudible(silence)
+check("speech heard while nothing plays is not echo",
+      quietGap == nil && !gap
+      && !Echo.isEcho(heard: "Something", saying: "", quiet: quietGap, playing: gap)
+      && !Echo.isEcho(heard: "Something quick.", saying: "", quiet: quietGap, playing: gap)
+      && !Echo.isEcho(heard: "how are you", saying: "How are you today?", quiet: quietGap, playing: gap))
+check("nothing intelligible is still echo when nothing plays",
+      Echo.isEcho(heard: "", saying: "", quiet: nil, playing: false))
+var unlearned = EchoLevel()
+let quietUnlearned = unlearned.isEcho(mic: tone, played: tone)
+check("one word before the echo level is learned is still echo",
+      quietUnlearned == nil && EchoLevel.isAudible(tone)
+      && Echo.isEcho(heard: "Something", saying: "What should I cook?", quiet: quietUnlearned, playing: true)
+      && Echo.isEcho(heard: "Acts.", saying: "Actually, pasta is easy.", quiet: quietUnlearned, playing: true))
+check("two words before the echo level is learned can interrupt",
+      !Echo.isEcho(heard: "wait stop", saying: "What should I cook?", quiet: nil, playing: true))
+let during = EchoLevel.isAudible(tone)
+let quietEcho = level.isEcho(mic: tone.map { $0 * 0.06 }, played: tone)
+let louder = level.isEcho(mic: tone.map { $0 * 0.4 }, played: tone)
+check("echo during playback is still echo",
+      during && quietEcho == true && louder == false
+      && Echo.isEcho(heard: "Acts.", saying: "How are you today?", quiet: quietEcho, playing: true)
+      && Echo.isEcho(heard: "how are you", saying: "How are you today? I hope well.", quiet: louder, playing: true))
+check("a loud different word during playback is them",
+      !Echo.isEcho(heard: "Something", saying: "Pasta is easy.", quiet: false, playing: true))
 
 var delayed = EchoDelay()
 // Syllables: loudness rising and falling, irregularly, as speech does.
