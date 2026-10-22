@@ -1,6 +1,7 @@
 import CompanionCore
 import Foundation
 import Observation
+import SileroVAD
 
 /// Everything the app shows and controls, on the main actor. The Mac app and
 /// the iPad and iPhone apps are views of this.

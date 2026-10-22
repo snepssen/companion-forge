@@ -1,5 +1,6 @@
 import CompanionCore
 import Foundation
+import SileroVAD
 
 /// What the loop tells the app.
 public enum LoopEvent: Sendable {

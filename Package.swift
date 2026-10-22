@@ -16,10 +16,10 @@ let package = Package(
         .package(url: "https://github.com/ml-explore/mlx-swift-lm.git", exact: "3.32.3"),
         .package(url: "https://github.com/huggingface/swift-transformers", exact: "1.3.5"),
         .package(url: "https://github.com/huggingface/swift-huggingface", exact: "1.0.0"),
-        .package(url: "https://github.com/microsoft/onnxruntime-swift-package-manager", from: "1.20.0"),
         .package(url: "https://github.com/snepssen/voice-core", from: "1.0.3"),
-        // NSException to NSError, for AVAudioEngine, which raises instead of throwing.
-        .package(url: "https://github.com/snepssen/speech-core", from: "0.1.0"),
+        // NSException to NSError, for AVAudioEngine, which raises instead of throwing,
+        // and Silero VAD. The weights stay in the app.
+        .package(url: "https://github.com/snepssen/speech-core", from: "0.2.0"),
         // CryptoKit on Apple platforms; the same API from swift-crypto elsewhere,
         // so `swift run cccheck` is not tied to a Mac.
         .package(url: "https://github.com/apple/swift-crypto.git", exact: "4.5.2"),
@@ -42,6 +42,7 @@ let package = Package(
         .target(name: "CompanionEngine", dependencies: [
             "CompanionCore",
             .product(name: "ObjCExceptions", package: "speech-core"),
+            .product(name: "SileroVAD", package: "speech-core"),
             .product(name: "VoiceCore", package: "voice-core"),
             .product(name: "FluidAudio", package: "FluidAudio"),
             .product(name: "MLXLLM", package: "mlx-swift-lm"),
@@ -50,7 +51,6 @@ let package = Package(
             .product(name: "MLXHuggingFace", package: "mlx-swift-lm"),
             .product(name: "HuggingFace", package: "swift-huggingface"),
             .product(name: "Tokenizers", package: "swift-transformers"),
-            .product(name: "onnxruntime", package: "onnxruntime-swift-package-manager"),
         ]),
         // The face and the window, shared by the Mac app and, later, the iPad and iPhone apps.
         .target(name: "CompanionUI", dependencies: ["CompanionCore", "CompanionEngine"]),
@@ -58,6 +58,9 @@ let package = Package(
         // Recorded speech through the live loop in real time, with the reply's
         // echo leaking back in; and the face rendered to images. For measuring
         // without a microphone or a window.
-        .executableTarget(name: "ccrun", dependencies: ["CompanionCore", "CompanionEngine", "CompanionUI"]),
+        .executableTarget(name: "ccrun", dependencies: [
+            "CompanionCore", "CompanionEngine", "CompanionUI",
+            .product(name: "SileroVAD", package: "speech-core"),
+        ]),
     ]
 )
