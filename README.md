@@ -326,18 +326,18 @@ again next time.
 
 ## Shared models
 
-A Release build looks for language models and the embedder only in the shared
-folder. It does not download, move, or delete them. If a model is missing, the
-message names the path it expected. A Debug build is unchanged:
+A macOS or Linux Release build looks for language models and the embedder
+only in the shared folder. It does not download, move, or delete them. If a
+model is missing, the message names the path it expected. Debug builds, and
+the iPhone and iPad app in every configuration, are unchanged:
 `~/Library/Application Support/Companion/Models/<id>/`, then this checkout's
-`models/<id>/`, including a symlink left by `scripts/fetch-models.sh`, and it
-can still download.
+`models/<id>/`, including a symlink left by `scripts/fetch-models.sh`, and
+they can still download. The iOS app group is not declared here.
 
 | | |
 |---|---|
 | macOS (the app is not sandboxed) | `~/Library/Application Support/snepssen/models/<id>/` |
 | Linux | `$XDG_DATA_HOME/snepssen/models/<id>/`, or `~/.local/share/snepssen/models/<id>/` when that variable is unset |
-| iOS | `models/<id>/` inside the `group.com.snepssen.models` container |
 
 The `<id>` directories this app expects:
 
@@ -367,10 +367,11 @@ finds it in this checkout's `models/`. Where interpreter-forge's `models/`
 sits beside this checkout — or `WORKSHOP_ROOT` names the folder that holds
 both — `scripts/fetch-models.sh` symlinks each model that Debug store doesn't
 already have, so the gigabytes stay where they are. A Debug launch finds those
-links. A model already in that store is left as it is. A Release build
-(`./build.sh`, and the iOS build) does not download, move, or delete models:
-it reads only the shared folder in [Shared models](#shared-models).
-`swift run cccheck` holds the model-free parts to their cases in seconds.
+links. A model already in that store is left as it is. A macOS Release
+build (`./build.sh`) does not download, move, or delete models: it reads only
+the shared folder in [Shared models](#shared-models). The iOS build keeps the
+Debug lookup. `swift run cccheck` holds the model-free parts to their cases
+in seconds.
 
 The iPhone and iPad app is the same engine and views (`iOS/`, generated
 with xcodegen as interpreter-forge's is):

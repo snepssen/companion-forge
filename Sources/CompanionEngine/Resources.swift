@@ -5,8 +5,8 @@ import VoiceCore
 /// Where things live: the voice and the voice detector in the app bundle when
 /// built by build.sh, otherwise in this checkout and, for development,
 /// voice-polyglot beside it. What the companion learns is in Application
-/// Support. A Debug build also looks for language models there. A Release
-/// build reads those only from `ModelStore.sharedRoot()`.
+/// Support. iOS, and every Debug build, also look for language models there.
+/// A macOS or Linux Release build reads those only from `ModelStore.sharedRoot()`.
 public enum Resources {
     static let checkout = URL(fileURLWithPath: #filePath)  // Sources/CompanionEngine/Resources.swift
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -20,9 +20,10 @@ public enum Resources {
     public static var timing: URL { support.appending(path: "turn-timing.json") }
     public static var memory: URL { support.appending(path: "memory.json") }
 
-    /// Debug only: this app's models, then this checkout's models/. A mismatched
-    /// symlink is left alone. Release does not use this store.
-    #if DEBUG
+    /// iOS, and every Debug build: this app's models, then this checkout's
+    /// models/. A mismatched symlink is left alone. macOS and Linux Release
+    /// do not use this store.
+    #if os(iOS) || DEBUG
     public static let models = ModelStore(
         directory: support.appending(path: "Models"),
         alsoSearching: [checkout.appending(path: "models")],

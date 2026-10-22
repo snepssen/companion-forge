@@ -199,11 +199,12 @@ func recall() async throws {
     }
 }
 
-/// Where a chat model is. Debug keeps this app's folder and the checkout.
-/// Release reads only `ModelStore.sharedRoot()` and does not download, move,
-/// or delete. A missing Release model is reported with the path it expected.
+/// Where a chat model is. iOS and Debug keep this app's folder and the checkout.
+/// macOS and Linux Release read only `ModelStore.sharedRoot()` and do not
+/// download, move, or delete. A missing model there is reported with the path
+/// it expected.
 func chatModelDirectory(_ model: ChatModel, missing: String) -> URL? {
-    #if DEBUG
+    #if os(iOS) || DEBUG
     guard let directory = Resources.models.location(of: model) else {
         print(missing)
         return nil
@@ -211,7 +212,7 @@ func chatModelDirectory(_ model: ChatModel, missing: String) -> URL? {
     return directory
     #else
     do {
-        return try ModelStore.release(at: try ModelStore.sharedRoot()).require(model)
+        return try ModelPlaces.directory(of: model)
     } catch {
         print(error.localizedDescription)
         return nil

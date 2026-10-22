@@ -228,14 +228,14 @@ public final class Companion {
 
     private func loadBrain() async throws {
         let directory: URL
-        #if DEBUG
+        #if os(iOS) || DEBUG
         guard let found = Resources.models.location(of: model) else {
             phase = .needsModel
             return
         }
         directory = found
         #else
-        directory = try ModelStore.release(at: try ModelStore.sharedRoot()).require(model)
+        directory = try ModelPlaces.directory(of: model)
         #endif
         phase = .loading("Loading \(model.name)…")
         face.set(.waking, at: Duplex.now)
@@ -249,25 +249,22 @@ public final class Companion {
     }
 
     public func isDownloaded(_ model: ChatModel) -> Bool {
-        #if DEBUG
+        #if os(iOS) || DEBUG
         Resources.models.isDownloaded(model)
         #else
-        do {
-            return try ModelStore.release(at: try ModelStore.sharedRoot()).isDownloaded(model)
-        } catch {
-            return false
-        }
+        return ModelPlaces.isDownloaded(model)
         #endif
     }
 
-    /// Switch to `model`, downloading it first if need be. A Release build
-    /// never downloads: a missing model is named with the path it expected.
+    /// Switch to `model`, downloading it first if need be. A macOS or Linux
+    /// Release build never downloads: a missing model is named with the path
+    /// it expected. iOS keeps the download.
     public func use(_ model: ChatModel) async {
         stop()
         self.model = model
         UserDefaults.standard.set(model.id, forKey: "model")
         do {
-            #if DEBUG
+            #if os(iOS) || DEBUG
             if !Resources.models.isDownloaded(model) {
                 downloading = (model, 0)
                 try await Resources.models.download(model) { [weak self] progress in
@@ -276,7 +273,7 @@ public final class Companion {
                 downloading = nil
             }
             #else
-            _ = try ModelStore.release(at: try ModelStore.sharedRoot()).require(model)
+            _ = try ModelPlaces.directory(of: model)
             #endif
             if recognizer != nil {
                 try await loadBrain()

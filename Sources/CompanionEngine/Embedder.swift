@@ -1,3 +1,4 @@
+import CompanionCore
 import Foundation
 import MLX
 import MLXEmbedders
@@ -16,15 +17,15 @@ public actor Embedder {
 
     private let context: EmbedderModelContext
 
-    /// Load it. A Debug build downloads it first (134 MB) when it isn't here.
-    /// A Release build only reads the shared folder, and names that path when
-    /// the files are missing.
+    /// Load it. iOS, and every Debug build, download it first (134 MB) when it
+    /// isn't here. A macOS or Linux Release build only reads the shared folder,
+    /// and names that path when the files are missing.
     public static func load(progress: @escaping @Sendable (Double) -> Void = { _ in }) async throws -> Embedder {
         let directory: URL
-        #if DEBUG
+        #if os(iOS) || DEBUG
         directory = try await Resources.models.download(model, progress: progress)
         #else
-        directory = try ModelStore.release(at: try ModelStore.sharedRoot()).require(model)
+        directory = try ModelPlaces.directory(of: model)
         #endif
         let context = try await EmbedderModelFactory.shared.load(from: directory, using: #huggingFaceTokenizerLoader())
         return Embedder(context)

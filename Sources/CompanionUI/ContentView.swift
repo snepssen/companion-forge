@@ -337,10 +337,10 @@ struct SettingsView: View {
 
     private func seconds(_ value: Double) -> String { String(format: "%.2f s", value) }
 
-    /// Debug offers a download. Release never fetches a model; choosing a
-    /// missing one reports the shared-folder path it expected.
+    /// iOS and Debug offer a download. macOS and Linux Release never fetch a
+    /// model; choosing a missing one reports the shared-folder path it expected.
     private func missingModelLabel(_ model: ChatModel) -> String {
-        #if DEBUG
+        #if os(iOS) || DEBUG
         "Download \(ByteCountFormatter.string(fromByteCount: model.download, countStyle: .file))"
         #else
         "Not in the shared folder"

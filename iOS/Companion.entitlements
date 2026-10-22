@@ -6,10 +6,5 @@
        more than the default limit on an 8 GB iPhone. -->
   <key>com.apple.developer.kernel.increased-memory-limit</key>
   <true/>
-  <!-- Release reads models from this group's models/ directory. -->
-  <key>com.apple.security.application-groups</key>
-  <array>
-    <string>group.com.snepssen.models</string>
-  </array>
 </dict>
 </plist>
