@@ -620,30 +620,30 @@ public actor Loop {
     }
 
     /// Someone talked over the reply. Its own voice coming back says the words
-    /// it is saying; a person interrupting says something else.
+    /// it is saying; a person interrupting says something else. Nothing
+    /// audible playing is the person too: the reply can be committed and not
+    /// yet started.
     ///
-    /// Two signals, either enough to call it echo: the words, and how loud it
-    /// is against what was being played.
+    /// Two signals, either enough to call it echo while the reply is playing:
+    /// the words, and how loud it is against what was being played.
     private func check(overlapSince since: Double, reply id: Int) {
         let samples = audio.buffer.read(Int(since * 16_000), processed)
         let played = playedBehind(samples.count, behind: audio.buffer.count - processed)
         let quiet = echoLevel.isEcho(mic: samples, played: played)
+        let playing = EchoLevel.isAudible(played)
         let loudness = echoLevel.leak.map { EchoLevel.level(samples) / max(1e-9, $0 * EchoLevel.level(played)) }
         Task {
             let heard = (try? await recognizer.transcribe(samples)) ?? ""
-            settle(overlap: heard, quiet: quiet, loudness: loudness, since: since, reply: id)
+            settle(overlap: heard, quiet: quiet, playing: playing, loudness: loudness, since: since, reply: id)
         }
     }
 
-    private func settle(overlap heard: String, quiet: Bool?, loudness: Double?, since: Double, reply id: Int) {
+    private func settle(overlap heard: String, quiet: Bool?, playing: Bool, loudness: Double?, since: Double, reply id: Int) {
         guard reply.id == id, case .replying = taker.phase else { return }
         let now = Duplex.now
         // What it was saying around the time it was talked over.
         let saying = reply.said.filter { $0.start <= now && $0.end >= now - 2 }.map(\.text).joined(separator: " ")
-        // Until the echo's level is learned, one word isn't enough: a third of
-        // a second of echo is often transcribed as one wrong word.
-        let unsure = quiet == nil && heard.split(whereSeparator: { $0.isWhitespace }).count < 2
-        let echo = Echo.isEcho(heard: heard, saying: saying) || quiet == true || unsure
+        let echo = Echo.isEcho(heard: heard, saying: saying, quiet: quiet, playing: playing)
         emit(.overlap(heard: heard, saying: saying, loudness: loudness, echo: echo))
         if echo {
             taker.overlapWasEcho()

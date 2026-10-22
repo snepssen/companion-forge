@@ -1112,8 +1112,6 @@ let memoryFolder = FileManager.default.temporaryDirectory.appending(path: "ccrun
 let memory = Memory(file: memoryFolder.appending(path: "memory.json"), conversations: memoryFolder, embedder: embedder)
 say(String(format: "loaded; footprint %.2f GB", footprint().now))
 
-func speech(_ text: String) throws -> [Float] { resample(try voice.speak(text), from: voice.sampleRate) }
-
 let audio = Played(rate: voice.sampleRate, echo: echo, delay: Double(option("--delay") ?? "0") ?? 0)
 let mouth = Mouth(audio)
 
@@ -1210,11 +1208,16 @@ func shake(for seconds: Double) async {
     }
 }
 
+/// The scripted person, in a system voice. The companion's own voice would
+/// make a different companion voice a different test: the same line takes a
+/// different time, and the pause after it lands somewhere else.
+let personVoice = "Samantha"
+
 /// One turn: phrases with pauses between them, then the time it ended.
 func turn(_ phrases: [String], pausing: Double = 0.55) async throws {
     for (index, phrase) in phrases.enumerated() {
         say("you: \(phrase)")
-        await mouth.deliver(try speech(phrase))
+        await mouth.deliver(try spoken(phrase, by: personVoice))
         if index + 1 < phrases.count { await mouth.pause(pausing) }
     }
     tally.lock.withLock {

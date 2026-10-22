@@ -191,6 +191,24 @@ public enum Echo {
         return Double(shared) / Double(heardWords.count) >= overlap
     }
 
+    /// Both signals, and the one-word doubt, for one moment of overlap.
+    ///
+    /// `quiet` is what `EchoLevel.isEcho` returned then: true when the
+    /// microphone is no louder than the reply's own echo, false when a
+    /// person is, nil when it can't say. Nil happens for two reasons, and
+    /// only one of them is a doubt. Before the echo's level is learned, a
+    /// third of a second of echo is often transcribed as one wrong word, so
+    /// one word isn't enough to stop the reply. Nothing audible playing is
+    /// nil too — the reply may already be committed and not yet started —
+    /// and speech then is the person still talking, one word or several.
+    /// While the reply is actually playing, either signal can still call it
+    /// echo.
+    public static func isEcho(heard: String, saying: String, quiet: Bool?, playing: Bool) -> Bool {
+        if !playing, !words(heard).isEmpty { return false }
+        let unsure = quiet == nil && heard.split(whereSeparator: { $0.isWhitespace }).count < 2
+        return isEcho(heard: heard, saying: saying) || quiet == true || unsure
+    }
+
     static func words(_ text: String) -> [String] {
         text.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber && $0 != "'" }).map(String.init)
     }
@@ -268,8 +286,14 @@ public struct EchoLevel: Sendable {
     /// Whether `mic` is no louder than the echo of `played`; nil until the
     /// leak has been learned, or when nothing audible was playing.
     public func isEcho(mic: [Float], played: [Float]) -> Bool? {
-        guard let leak, Self.level(played) > Self.audible else { return nil }
+        guard let leak, Self.isAudible(played) else { return nil }
         return Self.level(mic) <= leak * Self.level(played) * Self.margin
+    }
+
+    /// Whether this is the reply sounding, rather than silence or a gap
+    /// between its words. Below that the level check has nothing to compare.
+    public static func isAudible(_ samples: [Float]) -> Bool {
+        level(samples) > audible
     }
 
     public static func level(_ samples: [Float]) -> Double {
