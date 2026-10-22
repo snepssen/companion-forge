@@ -288,6 +288,40 @@ English sentence. The English parts go through voice-forge's reading; the
 eight languages the voice was trained on sound like it, and the rest go
 through plain espeak-ng, accent and all.
 
+## The bundle ID
+
+The Mac app and the iPhone and iPad app are `com.snepssen.companion`
+(`build.sh`'s Info.plist, `iOS/project.yml`). The Mac app used to be
+`local.companion-core.companion`. The Keychain item that holds the memory
+key was already stored under the service `com.snepssen.companion`, with no
+access group (`Vault.swift`). That service is unchanged. A new name, or an
+access group added now, would leave the key behind and everything sealed
+with it unreadable.
+
+What it remembers is not named with the bundle ID. Conversations, notes,
+the diary and downloaded models stay in
+`~/Library/Application Support/Companion` either way. The Mac app is not
+sandboxed, so there is no `~/Library/Containers/<bundle id>` to move, and
+nothing is logged under the bundle ID. A URL cache may sit in
+`~/Library/Caches/<bundle id>`; it is not moved, because a model is only
+kept once its files are in Application Support and the right size.
+
+Two Mac locations are named with the bundle ID. The first launch copies
+them across before preferences or the saved window are read
+(`BundleMigration`):
+
+- `~/Library/Preferences/local.companion-core.companion.plist`, which is
+  Settings: the model, the visor, echo cancellation, personality, and the rest
+- `~/Library/Saved Application State/local.companion-core.companion.savedState`,
+  the window
+
+The copy is checked byte for byte, including every file in the saved window,
+and only then is the old one removed. If the new location already exists and
+is not the same, both are left as they are. Once a move has finished, the
+next launch finds the old paths gone. A copy that does not check out is
+thrown away and the original kept, so a launch that stops halfway tries
+again next time.
+
 ## Build
 
     scripts/fetch-models.sh        # Silero VAD, once

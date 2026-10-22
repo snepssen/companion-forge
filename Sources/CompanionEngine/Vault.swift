@@ -7,6 +7,10 @@ import Security
 /// device only (never synced, never in a backup it could be restored from
 /// elsewhere), and the folder it all lives in, protected on iPhone and iPad
 /// so it can't be read while the device is locked.
+///
+/// `service` is `com.snepssen.companion`, the same string as the bundle ID,
+/// and there is no access group. The key is already stored under that
+/// service: renaming it, or adding an access group, would orphan it.
 public enum Vault {
     static let service = "com.snepssen.companion"
     static let account = "memory key"
