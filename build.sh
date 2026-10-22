@@ -7,7 +7,9 @@
 # data come with the voice-core package; Silero VAD is fetched once into
 # models/. The language model (3.5-5 GB) is not bundled: it is
 # downloaded from the app's settings into ~/Library/Application Support/
-# Companion/Models, or found in this checkout's models/ or interpreter-forge's.
+# Companion/Models, or found in this checkout's models/. With WORKSHOP_ROOT
+# set to the folder that holds the workshop checkouts, interpreter-forge's
+# models/ count too.
 set -euo pipefail
 cd "$(dirname "$0")"
 ROOT="$(pwd)"

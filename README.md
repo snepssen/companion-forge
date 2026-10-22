@@ -326,7 +326,7 @@ again next time.
 
 ## Build
 
-    scripts/fetch-models.sh        # Silero VAD, once
+    scripts/fetch-models.sh        # Silero VAD, once, from the Silero repository
     ./build.sh                     # checks, then Companion.app and ccrun
 
 The package resolves from this checkout, plus voice-core by URL. Nothing else
@@ -336,10 +336,10 @@ voice-polyglot's newest export where it is beside this checkout, else its
 latest GitHub Release, checked against the release's SHA256SUMS and fetched
 again when a newer one is out. No separate English voice is fetched. The
 first build also fetches English Wiktionary's extract (523 MB) and cuts the
-dictionary from it. The language model is
-downloaded from the app's settings; one already in interpreter-forge's `models/`
-is used as it is. `swift run cccheck` holds the model-free parts to their
-cases in seconds.
+dictionary from it. The language model is downloaded from the app's settings.
+Set `WORKSHOP_ROOT` to the folder that holds the workshop checkouts, and one
+already in interpreter-forge's `models/` is used as it is. `swift run cccheck`
+holds the model-free parts to their cases in seconds.
 
 The iPhone and iPad app is the same engine and views (`iOS/`, generated
 with xcodegen as interpreter-forge's is):

@@ -21,8 +21,8 @@ PIPELINE = (
     "ASR              Parakeet Ultra through FluidAudio, on the Neural Engine\n"
     "language model   Gemma 4 E4B, 4-bit MLX\n"
     "                 Qwen3 4B or Gemma 4 E2B where the phone has 8 GB\n"
-    "voice            voice-polyglot's snepssen, on voice-core's Piper\n"
-    "                 English through voice-forge's English snepssen and its reading\n"
+    "voice            the polyglot snepssen, on voice-core's Piper\n"
+    "                 English included, the same voice\n"
     "face             protoke's visor, ported to Swift, drawn as an LED panel\n"
     "memory           bge-small-en-v1.5 on MLX, over notes the model writes\n"
     "whose voice      CAM++ voiceprints through FluidAudio\n"
@@ -72,9 +72,8 @@ PAGE = {
             "text": PIPELINE,
             "caption": (
                 "One chain, on the machine in front of you. The voice the "
-                "build bundles is voice-polyglot's snepssen; English goes "
-                "through voice-forge's English voice and its reading, on "
-                "voice-core's Piper."),
+                "build bundles is voice-polyglot's snepssen, English included, "
+                "on voice-core's Piper."),
         },
     ],
 
@@ -434,10 +433,9 @@ PAGE = {
                     "language they named, or one Apple's detector is sure "
                     "of, and a whole sentence in another language, are each "
                     "spoken in their own language by the polyglot voice and "
-                    "joined. The English parts go through voice-forge's "
-                    "reading. The eight languages the voice was trained on "
-                    "sound like it, and the rest go through plain espeak-ng, "
-                    "accent and all.",
+                    "joined. English is that same voice. The eight languages "
+                    "the voice was trained on sound like it, and the rest go "
+                    "through plain espeak-ng, accent and all.",
                 ]},
                 {"kind": "heading", "text": "Who it is"},
                 {"kind": "prose", "text": [
@@ -498,24 +496,25 @@ PAGE = {
             "id": "get",
             "jump": "Get it",
             "eyebrow": "Getting it",
-            "heading": "Built from source, beside voice-forge",
+            "heading": "Built from this checkout",
             "blocks": [
                 {"kind": "prose", "text": [
-                    "voice-forge has to be checked out beside this one. The "
-                    "package takes its engine by path, for the English "
-                    "reading, and its English voice comes with it. The voice "
-                    "the build bundles is voice-polyglot's newest export "
-                    "where that checkout is beside this one, otherwise its "
-                    "latest GitHub release, checked against the release's "
-                    "SHA256SUMS and fetched again when a newer one is out. "
+                    "The package resolves from this checkout, plus voice-core "
+                    "by URL. Nothing else has to sit beside it. The voice the "
+                    "build bundles is voice-polyglot's snepssen, English "
+                    "included: its newest export where that checkout is beside "
+                    "this one, otherwise its latest GitHub release, checked "
+                    "against the release's SHA256SUMS and fetched again when "
+                    "a newer one is out. No separate English voice is fetched. "
                     "The first build also fetches English Wiktionary's "
                     "extract, 523 MB, and cuts the dictionary from it. The "
-                    "language model is downloaded from Settings. One already "
-                    "in interpreter-forge's <span class=\"mono\">models/</span> is "
-                    "used as it is.",
+                    "language model is downloaded from Settings. Set "
+                    "<span class=\"mono\">WORKSHOP_ROOT</span> to the folder that "
+                    "holds the workshop checkouts, and one already in "
+                    "interpreter-forge's <span class=\"mono\">models/</span> is used "
+                    "as it is.",
                 ]},
-                {"kind": "raw", "html": """  <pre class="code"><span class="c"># voice-forge beside this checkout</span>
-scripts/fetch-models.sh <span class="c"># Silero VAD, once</span>
+                {"kind": "raw", "html": """  <pre class="code">scripts/fetch-models.sh <span class="c"># Silero VAD, once, from the Silero repository</span>
 ./build.sh               <span class="c"># checks, then Companion.app and ccrun</span>
 swift run cccheck        <span class="c"># the model-free parts, held to their cases</span>
 

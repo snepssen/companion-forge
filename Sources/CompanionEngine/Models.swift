@@ -138,13 +138,15 @@ public struct EmbedderModel: Pinned {
 /// Models on this device: fetched file by file from their pinned revision into
 /// Application Support, sizes checked so a cut-off download is fetched again
 /// rather than loaded, and kept out of backups. For development, this
-/// checkout's models/ and interpreter-forge's beside it count too.
+/// checkout's models/ count too, and so does interpreter-forge's when
+/// `WORKSHOP_ROOT` names the folder that holds both checkouts.
 public enum ModelStore {
     static var directory: URL { Resources.support.appending(path: "Models") }
 
     static func folders(for model: some Pinned) -> [URL] {
-        [directory, Resources.checkout.appending(path: "models"), Resources.interpreterForge.appending(path: "models")]
-            .map { $0.appending(path: model.id) }
+        var roots = [directory, Resources.checkout.appending(path: "models")]
+        if let shared = Resources.interpreterForge?.appending(path: "models") { roots.append(shared) }
+        return roots.map { $0.appending(path: model.id) }
     }
 
     public static func location(of model: some Pinned) -> URL? {
