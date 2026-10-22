@@ -431,9 +431,9 @@ every turn of a 22-turn conversation started in 0.31 to 0.37 s.
 
 ## From interpreter-forge
 
-`SileroVAD`, `Voice`, `SampleBuffer`, the model store and `PromptCache` are
-interpreter-forge's, copied with small changes. Like voice-core, they belong in
-one shared package once both apps settle on them.
+`SileroVAD`, `SampleBuffer`, the model store and `PromptCache` come from
+[speech-core](https://github.com/snepssen/speech-core), which interpreter-forge
+uses too. `Voice` is still interpreter-forge's, copied with small changes.
 
 ## Next
 
