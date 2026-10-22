@@ -28,6 +28,8 @@ public enum LoopEvent: Sendable {
     /// multiple of the reply's learned echo (nil before that is learned), and
     /// the verdict.
     case overlap(heard: String, saying: String, loudness: Double?, echo: Bool)
+    /// The reply never sounded. They were still talking, and that turn goes on.
+    case withdrew
     /// Whose voice a turn was, once it was theirs for certain: its person,
     /// a guest, or not sure, with how alike.
     case voice(String)
@@ -62,9 +64,10 @@ enum MemoryAction: Sendable {
 /// A reply is drafted while the person is still pausing, from the moment the
 /// pause is long enough to be worth a guess: transcribed, written by the model
 /// and turned into speech, sentence by sentence, but held. If they carry on,
-/// it is thrown away; if the pause runs to the learned wait, what is ready is
-/// played at once and the rest follows as it is made. Most of the model's
-/// time is spent inside the silence the person was leaving anyway.
+/// it is thrown away and that generation is waited out before another starts;
+/// if the pause runs to the learned wait, what is ready is played at once and
+/// the rest follows as it is made. Most of the model's time is spent inside
+/// the silence the person was leaving anyway.
 public actor Loop {
     struct Said {
         let text: String
@@ -100,6 +103,11 @@ public actor Loop {
         var committed = false
         var written = false
         var finished = false
+        /// In the conversation. Not until the reply has been heard: a follow-up
+        /// before that is still this turn, and recording it now would make two.
+        var recorded = false
+        /// Stream time of the first frame of this reply that was actually audible.
+        var soundedAt: Double?
     }
 
     static let frame = SileroVAD.frame
@@ -122,7 +130,12 @@ public actor Loop {
     private var processed = 0
     private var turnStart = 0
     private var reply = Reply()
-    private var draft: Task<Void, Never>?
+    /// One generation at a time. A cancelled one is waited out before the next
+    /// starts: two at once crash inside MLX's quantized matmul.
+    private let generations = GenerationQueue()
+    /// Words already committed, when the reply never sounded and they kept
+    /// talking. The next transcript is joined onto them.
+    private var carried: String?
     private var echoLevel: EchoLevel
     /// The last reply, what of it was said and when its voice stopped: its
     /// echo can open the next turn.
@@ -228,30 +241,31 @@ public actor Loop {
                     return
                 }
                 listenForDelay(samples, behind: available - processed)
-                listenForEcho(samples, behind: available - processed)
+                listenForEcho(samples, behind: available - processed, at: t)
                 if speech { listenForWhere() }
-                act(taker.tick(at: t, speech: speech, probability: vad.probability), at: t)
+                await act(taker.tick(at: t, speech: speech, probability: vad.probability), at: t)
             }
             finishIfSaid()
             // Keep what a turn could still need; a minute is more than any.
             audio.buffer.drop(before: min(turnStart, processed - 60 * 16_000))
             try? await Task.sleep(for: .milliseconds(20))
         }
-        draft?.cancel()
+        await generations.cancel()
     }
 
-    private func act(_ action: TurnTaker.Action, at t: Double) {
+    private func act(_ action: TurnTaker.Action, at t: Double) async {
         switch action {
         case .none:
             break
         case let .turnStarted(at):
+            carried = nil
             turnStart = max(0, Int(at * 16_000) - Self.preroll)
             emit(.mood(.listening))
         case .draft:
-            startDraft()
+            await startDraft()
         case .abandon:
-            draft?.cancel()
             reply = Reply(id: reply.id + 1)
+            await generations.cancel()
             emit(.mood(.listening))
         case .commit:
             commit()
@@ -262,9 +276,11 @@ public actor Loop {
 
     /// While the reply plays, learn how loud it comes back. `behind` is how
     /// many samples the microphone has delivered since this frame.
-    private func listenForEcho(_ frame: [Float], behind: Int) {
+    private func listenForEcho(_ frame: [Float], behind: Int, at t: Double) {
         guard case .replying = taker.phase, audio.backlog > 0 else { return }
-        echoLevel.hear(mic: frame, played: playedBehind(frame.count, behind: behind))
+        let played = playedBehind(frame.count, behind: behind)
+        if reply.soundedAt == nil, EchoLevel.isAudible(played) { reply.soundedAt = t }
+        echoLevel.hear(mic: frame, played: played)
     }
 
     /// While the reply plays and just after, learn how late it comes back.
@@ -292,7 +308,7 @@ public actor Loop {
 
     // MARK: drafting
 
-    private func startDraft() {
+    private func startDraft() async {
         let id = reply.id + 1
         reply = Reply(id: id)
         let samples = audio.buffer.read(turnStart, processed)
@@ -302,10 +318,11 @@ public actor Loop {
             reply.seconds = Double(samples.count) / 16_000
             reply.loudness = samples.isEmpty ? 0 : (samples.reduce(0) { $0 + $1 * $1 } / Float(samples.count)).squareRoot()
         }
-        draft = Task { await self.write(id, samples) }
+        await generations.begin { await self.write(id, samples) }
     }
 
     private func write(_ id: Int, _ samples: [Float]) async {
+        guard reply.id == id, !Task.isCancelled else { return }
         reply.started = Duplex.now
         do {
             let printing = reply.printing
@@ -319,6 +336,11 @@ public actor Loop {
             if let last = lastReply, began - last.end < Self.echoTail {
                 text = Echo.strippingTail(text, said: last.text)
             }
+            // A follow-up before the reply sounded belongs with the words
+            // already committed, as one turn.
+            if let earlier = carried, !earlier.isEmpty {
+                text = Utterance.join(earlier, text)
+            }
             if text.isEmpty {
                 taker.discard()
                 reply = Reply(id: id + 1)
@@ -327,7 +349,9 @@ public actor Loop {
             }
             // Its voiceprint, for whose voice this is.
             if voices != nil, let print = await printing?.value ?? nil, reply.id == id { reply.print = print }
-            if !wakes(text, confidence: recognised.confidence) {
+            // A turn that had already been accepted stays one, whatever the
+            // follow-up's confidence. A fresh turn still has to be worth answering.
+            if carried == nil, !wakes(text, confidence: recognised.confidence) {
                 taker.discard()
                 reply = Reply(id: id + 1)
                 emit(.ignored(text))
@@ -452,6 +476,10 @@ public actor Loop {
             } onCancel: {
                 generation.cancel()
             }
+            if Task.isCancelled || reply.id != id {
+                _ = try? await generation.value
+                return
+            }
             if pretended {
                 _ = try? await generation.value
                 try Task.checkCancellation()
@@ -523,8 +551,11 @@ public actor Loop {
     // MARK: the turn changes hands
 
     private func commit() {
+        // Joined into reply.person already, if this turn was a follow-up.
+        carried = nil
         reply.committed = true
-        // Their voice still being worked out: record the turn when it's in.
+        // Their voice still being worked out: record the turn when it's in,
+        // and only once the reply has actually been heard.
         if voices != nil, reply.print == nil, let printing = reply.printing {
             reply.awaitingVoice = true
             let id = reply.id
@@ -534,7 +565,6 @@ public actor Loop {
             }
         } else {
             settleVoice()
-            recordTheirs()
         }
         emit(.heard(reply.person))
         emit(.timing(taker.model))
@@ -547,9 +577,18 @@ public actor Loop {
         guard reply.id == id, reply.awaitingVoice else { return }
         reply.print = print
         settleVoice()
-        recordTheirs()
         reply.awaitingVoice = false
         finishIfSaid()
+    }
+
+    /// Their words into the conversation, once the reply has been heard.
+    /// Until then a follow-up is still this turn, and recording it now would
+    /// make the model see two.
+    private func keepTheirs(waitingForVoice: Bool = true) {
+        guard reply.committed, !reply.recorded, !reply.person.isEmpty else { return }
+        if waitingForVoice, reply.awaitingVoice { return }
+        reply.recorded = true
+        recordTheirs()
     }
 
     /// Now theirs for certain: whose voice it was, learning its person's.
@@ -595,6 +634,7 @@ public actor Loop {
         // Its last words are still coming back off the room: the turn isn't
         // open until they have, or they would open it.
         if let end = reply.said.last?.end, Duplex.now < end + echoDelay.delay + Self.ringing { return }
+        keepTheirs()
         reply.finished = true
         let text = reply.said.map(\.text).joined(separator: " ")
         if !text.isEmpty { record(Turn(.companion, text)) }
@@ -634,11 +674,11 @@ public actor Loop {
         let loudness = echoLevel.leak.map { EchoLevel.level(samples) / max(1e-9, $0 * EchoLevel.level(played)) }
         Task {
             let heard = (try? await recognizer.transcribe(samples)) ?? ""
-            settle(overlap: heard, quiet: quiet, playing: playing, loudness: loudness, since: since, reply: id)
+            await settle(overlap: heard, quiet: quiet, playing: playing, loudness: loudness, since: since, reply: id)
         }
     }
 
-    private func settle(overlap heard: String, quiet: Bool?, playing: Bool, loudness: Double?, since: Double, reply id: Int) {
+    private func settle(overlap heard: String, quiet: Bool?, playing: Bool, loudness: Double?, since: Double, reply id: Int) async {
         guard reply.id == id, case .replying = taker.phase else { return }
         let now = Duplex.now
         // What it was saying around the time it was talked over.
@@ -649,16 +689,40 @@ public actor Loop {
             taker.overlapWasEcho()
             return
         }
+        let soundedBefore = reply.soundedAt.map { $0 <= since } ?? false
+        // Nothing of the reply had been heard: they hadn't finished, and the
+        // follow-up belongs with the words already committed. A second
+        // follow-up can arrive before those words have been written down;
+        // the ones carried forward still belong to this turn.
+        if Echo.continuesTurn(audible: playing, soundedBefore: soundedBefore),
+           !reply.person.isEmpty || carried != nil {
+            if !reply.person.isEmpty { carried = reply.person }
+            audio.silence()
+            let next = reply.id + 1
+            reply = Reply(id: next)
+            await generations.cancel()
+            guard reply.id == next, case .replying = taker.phase else { return }
+            taker.carriedOn(at: Double(processed) / 16_000)
+            emit(.withdrew)
+            emit(.timing(taker.model))
+            emit(.mood(.listening))
+            anticipate()
+            return
+        }
         audio.silence()
-        draft?.cancel()
         let said = reply.said.filter { $0.start <= now }.map(\.text).joined(separator: " ")
+        keepTheirs(waitingForVoice: false)
+        carried = nil
+        let next = reply.id + 1
+        reply = Reply(id: next)
+        await generations.cancel()
+        guard reply.id == next, case .replying = taker.phase else { return }
         if !said.isEmpty { record(Turn(.companion, said, interrupted: true)) }
         lastReply = (said, now)
         emit(.hushed(at: now))
         emit(.replied(said, interrupted: true))
-        taker.interrupted(since: since)
+        taker.interrupted(since: since, at: Double(processed) / 16_000)
         turnStart = max(0, Int(since * 16_000) - Self.preroll)
-        reply = Reply(id: id + 1)
         emit(.timing(taker.model))
         emit(.mood(.listening))
         anticipate()
@@ -672,7 +736,7 @@ public actor Loop {
         guard let (samples, mouth) = try? await Task.detached(operation: { try voice.speakTimed(text) }).value,
               !samples.isEmpty, taker.speakUnprompted(at: Double(processed) / 16_000)
         else { return false }
-        draft?.cancel()
+        await generations.cancel()
         reply = Reply(id: reply.id + 1)
         reply.committed = true
         reply.written = true

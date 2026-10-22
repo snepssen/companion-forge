@@ -209,6 +209,15 @@ public enum Echo {
         return isEcho(heard: heard, saying: saying) || quiet == true || unsure
     }
 
+    /// Speech over a reply that has not yet made a sound is the rest of their
+    /// turn, not a new one and not a cut-in. `audible` is this overlap's own
+    /// window; `soundedBefore` is whether the reply had already been heard
+    /// before they started. A gap after it has sounded is still an
+    /// interruption: echo protection during real playback is unchanged.
+    public static func continuesTurn(audible: Bool, soundedBefore: Bool) -> Bool {
+        !audible && !soundedBefore
+    }
+
     static func words(_ text: String) -> [String] {
         text.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber && $0 != "'" }).map(String.init)
     }
