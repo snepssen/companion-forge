@@ -646,6 +646,11 @@ check("someone else, at length, is a guest", { if case .guest = home.hear(printN
 check("and never becomes its person, or changes their voice",
       home.owner?.heard == 2 && { if case .guest = home.hear(printNear(sam, 0.1, 5), seconds: 3) { return true }; return false }())
 check("a short 'yeah' decides nothing", home.hear(printNear(sam, 0.1, 6), seconds: 0.8) == .unsure)
+check("its person wakes it, even with a short 'hey'", home.wakes(printNear(lin, 0.1, 10), seconds: 2.5)
+    && home.wakes(printNear(lin, 0.3, 11), seconds: 0.7))
+check("a TV or a passer-by doesn't", !home.wakes(printNear(sam, 0.1, 12), seconds: 3)
+    && !home.wakes(printNear(sam, 0.1, 13), seconds: 0.7) && !home.wakes(nil, seconds: 2))
+check("before it knows its person, anyone does", Household().wakes(printNear(sam, 0.1, 14), seconds: 3))
 let withGuest = [Turn(.person, "My sister is visiting."), Turn(.companion, "Oh, nice!"),
                  Turn(.person, "Hi, I'm Sam.", who: Household.guest), Turn(.companion, "Hey Sam."),
                  Turn(.person, "Who's visiting?"), Turn(.companion, "Your sister.")]

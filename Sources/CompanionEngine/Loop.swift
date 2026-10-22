@@ -31,6 +31,9 @@ public enum LoopEvent: Sendable {
     /// Whose voice a turn was, once it was theirs for certain: its person,
     /// a guest, or not sure, with how alike.
     case voice(String)
+    /// Heard, but not one to answer: noise it made words of, or someone
+    /// other than its person when it wasn't in a conversation.
+    case ignored(String)
     case problem(String)
 }
 
@@ -81,10 +84,11 @@ public actor Loop {
         /// coming up to remind them of.
         var checkIn: Note?
         var coming: Happening?
-        /// Their voiceprint, how long the turn was, and whether it sounded
-        /// like a guest while drafting.
+        /// Their voiceprint, how long the turn was, how loud, and whether it
+        /// sounded like a guest while drafting.
         var print: [Float]?
         var seconds = 0.0
+        var loudness: Float = 0
         var guest = false
         /// Working out their voiceprint, from the start of the draft.
         var printing: Task<[Float]?, Never>?
@@ -142,6 +146,38 @@ public actor Loop {
     private let voices: VoiceSense?
     /// Whether it's a guest talking, as last it could tell.
     private var guestTalking = false
+    /// When anything was last said, by either side.
+    private var lastExchange = -1e9
+    /// Quiet this long and it isn't in a conversation: only its person wakes it.
+    private let awake: Double
+
+    /// Whether a turn is one to answer. In a conversation, nearly anything is,
+    /// but a stray word it isn't sure of ("Thanks" heard as "Science"). Out
+    /// of one, only its person starts one: left on all night, it answered a
+    /// TV or the street, which it transcribes just as surely as them.
+    private func wakes(_ text: String, confidence: Float) -> Bool {
+        let words = text.split(separator: " ").count
+        if words <= 2 && confidence < Self.unsure { return false }
+        guard let voices else { return Duplex.now - lastExchange <= awake || confidence >= Self.sure }
+        let household = voices.current
+        guard Duplex.now - lastExchange <= awake else { return household.wakes(reply.print, seconds: reply.seconds) }
+        // In a conversation a guest joins in, if they're about as near as its
+        // person: a TV through the wall, answered at a tenth of their
+        // loudness, isn't someone in the room.
+        if let print = reply.print, case .guest = voices.peek(print, seconds: reply.seconds), ownerLoudness > 0 {
+            return reply.loudness >= ownerLoudness * Self.near
+        }
+        return true
+    }
+
+    /// How loud its person's recent turns were, and how near that a guest must sound.
+    private var ownerLoudness: Float = 0
+    static let near: Float = 0.3
+
+    /// How sure the recogniser must be of a short turn, and of anything that
+    /// starts a conversation when it can't tell voices apart.
+    static let unsure: Float = 0.8
+    static let sure: Float = 0.9
     /// How to be with a guest.
     static let guestWay = "This isn't the voice of the person whose companion you are: it's someone else, a guest. "
         + "Be friendly and kind and keep it light. You have nothing to tell them about your person, their plans or "
@@ -156,8 +192,9 @@ public actor Loop {
 
     public init(audio: any AudioIO, vad: SileroVAD, recognizer: Recognizer, brain: Brain, voice: Voice,
                 memory: Memory? = nil, attention: AttentionSense? = nil, dictionary: Dictionary? = nil,
-                log: ConversationLog?, voiceprinter: Voiceprinter? = nil, voices: VoiceSense? = nil,
+                log: ConversationLog?, voiceprinter: Voiceprinter? = nil, voices: VoiceSense? = nil, awake: Double = 180,
          timing: PauseModel, echoLevel: EchoLevel = EchoLevel(), emit: @escaping @Sendable (LoopEvent) -> Void) {
+        self.awake = awake
         self.voiceprinter = voiceprinter
         self.voices = voices
         self.audio = audio
@@ -263,6 +300,7 @@ public actor Loop {
         if voices != nil, let voiceprinter {
             reply.printing = Task { try? await voiceprinter.print(samples) }
             reply.seconds = Double(samples.count) / 16_000
+            reply.loudness = samples.isEmpty ? 0 : (samples.reduce(0) { $0 + $1 * $1 } / Float(samples.count)).squareRoot()
         }
         draft = Task { await self.write(id, samples) }
     }
@@ -271,7 +309,8 @@ public actor Loop {
         reply.started = Duplex.now
         do {
             let printing = reply.printing
-            var text = try await recognizer.transcribe(samples)
+            let recognised = try await recognizer.heard(samples)
+            var text = recognised.text
             guard reply.id == id, !Task.isCancelled else { return }
             reply.times.transcribed = Duplex.now - reply.started
             // A turn that began as the last reply's voice stopped may begin
@@ -286,12 +325,20 @@ public actor Loop {
                 emit(.mood(.idle))
                 return
             }
+            // Its voiceprint, for whose voice this is.
+            if voices != nil, let print = await printing?.value ?? nil, reply.id == id { reply.print = print }
+            if !wakes(text, confidence: recognised.confidence) {
+                taker.discard()
+                reply = Reply(id: id + 1)
+                emit(.ignored(text))
+                emit(.mood(.idle))
+                return
+            }
             taker.transcribed(Ending.of(text))
             reply.person = text
             reply.guest = guestTalking
             var sureOfVoice = false
-            if let voices, let print = await printing?.value ?? nil, reply.id == id {
-                reply.print = print
+            if let voices, let print = reply.print {
                 switch voices.peek(print, seconds: reply.seconds) {
                 case .owner:
                     reply.guest = false
@@ -512,6 +559,7 @@ public actor Loop {
             switch heard {
             case let .owner(score):
                 guestTalking = false
+                ownerLoudness = ownerLoudness == 0 ? reply.loudness : ownerLoudness * 0.7 + reply.loudness * 0.3
                 emit(.voice(String(format: "its person (%.2f)", score)))
             case let .guest(score):
                 guestTalking = true
@@ -675,6 +723,7 @@ public actor Loop {
     @discardableResult
     private func record(_ turn: Turn) -> Int? {
         turnCount += 1
+        lastExchange = Duplex.now
         history.append(turn)
         history.removeFirst(Window.trim(history.count))
         do {

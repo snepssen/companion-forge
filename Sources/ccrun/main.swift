@@ -916,6 +916,39 @@ if let folder = option("--speakers") {
     exit(0)
 }
 
+// ccrun --night: what the recogniser makes of night-time noise, beside real
+// speech, and how sure it is of each.
+if CommandLine.arguments.contains("--night") {
+    let recognizer = try await Recognizer.load()
+    let rate = 16_000.0
+    func noise(_ seconds: Double, _ make: (Int) -> Float) -> [Float] { (0..<Int(seconds * rate)).map(make) }
+    var seed: UInt32 = 7
+    func white() -> Float { seed = seed &* 1_664_525 &+ 1_013_904_223; return Float(seed >> 8) / Float(1 << 24) - 0.5 }
+    var low: Float = 0
+    var sounds: [(String, [Float])] = [
+        ("hiss", noise(2) { _ in white() * 0.05 }),
+        ("loud hiss", noise(2) { _ in white() * 0.3 }),
+        ("rumble (fridge, traffic)", noise(3) { _ in low = low * 0.995 + white() * 0.05; return low }),
+        ("hum 50 Hz", noise(2) { i in Float(sin(2 * Double.pi * 50 * Double(i) / rate)) * 0.1 + white() * 0.01 }),
+        ("clicks (a creak, a tap)", noise(2) { i in i % 4000 < 40 ? white() * 0.8 : white() * 0.005 }),
+        ("music-ish chords", noise(3) { i in
+            let t = Double(i) / rate
+            return Float(sin(2 * .pi * 220 * t) + sin(2 * .pi * 277 * t) + sin(2 * .pi * 330 * t)) * 0.08 }),
+    ]
+    for (voice, line) in [("Samantha", "Hey, are you awake?"), ("Daniel", "I couldn't sleep, can we talk for a bit?"),
+                          ("Karen", "Good morning."), ("Samantha", "Yeah."), ("Fred", "Thanks.")] {
+        sounds.append(("\(voice): \(line)", try spoken(line, by: voice)))
+    }
+    // Speech from across a room, under a TV: quiet and mixed with noise.
+    let far = try spoken("And now the weather for the weekend ahead.", by: "Daniel")
+    sounds.append(("faraway TV speech", far.map { $0 * 0.08 + white() * 0.02 }))
+    for (name, samples) in sounds {
+        let (text, confidence) = try await recognizer.heard(samples)
+        print(String(format: "%-46@ %.2f  \"%@\"", name as NSString, confidence, text as NSString))
+    }
+    exit(0)
+}
+
 if CommandLine.arguments.contains("--weeks") {
     try await weeksRun()
     exit(0)
@@ -1099,12 +1132,13 @@ let tally = Report.tally
 
 let attention = AttentionSense()
 // --household: its person and a guest, by two of the system's voices.
-let household = CommandLine.arguments.contains("--household")
+let household = CommandLine.arguments.contains("--household") || CommandLine.arguments.contains("--overnight")
 let printer = household ? try await Voiceprinter(.campplus) : nil
 let houseLog = household ? try ConversationLog(directory: memoryFolder) : nil
 let loop = Loop(audio: audio, vad: try SileroVAD(model: vadURL), recognizer: recognizer, brain: brain, voice: voice,
                 memory: memory, attention: attention, log: houseLog, voiceprinter: printer,
-                voices: household ? VoiceSense(Household()) : nil, timing: PauseModel(), emit: Report.handle)
+                voices: household ? VoiceSense(Household()) : nil,
+                awake: CommandLine.arguments.contains("--overnight") ? 5 : 180, timing: PauseModel(), emit: Report.handle)
 
 /// Away from the main actor: the loop calls it from its own.
 enum Report {
@@ -1150,6 +1184,7 @@ enum Report {
     case let .echoLevel(level):
         if let leak = level.leak { say(String(format: "echo comes back at %.3f of what was played", leak)) }
     case let .voice(who): say("voice: \(who)")
+    case let .ignored(text): say("ignored: \(text)")
     case let .problem(message): say("PROBLEM: \(message)")
     }
     }
@@ -1224,6 +1259,43 @@ func turn(_ phrases: [String], by voice: String) async throws {
         tally.waitingForReply = true
     }
     audio.markReply()
+}
+
+// --overnight: its person talks, then the room is quiet but for a TV through
+// the wall; then its person, briefly; then the TV again, mid-conversation.
+// (Quiet for 5 s counts as out of a conversation here, not 3 minutes.)
+if CommandLine.arguments.contains("--overnight") {
+    var hiss: UInt32 = 3
+    func tv(_ line: String) throws -> [Float] {
+        try spoken(line, by: "Daniel").map { x in
+            hiss = hiss &* 1_664_525 &+ 1_013_904_223
+            return x * 0.1 + (Float(hiss >> 8) / Float(1 << 24) - 0.5) * 0.02
+        }
+    }
+    func tvTurn(_ line: String) async throws {
+        say("TV: \(line)")
+        await mouth.deliver(try tv(line))
+        await mouth.pause(3)
+    }
+    await mouth.pause(1)
+    var before = Report.ended()
+    try await turn(["Hi there.", "I'm going to bed soon, it's been a long day."], by: "Samantha")
+    await mouth.pauseForReply(after: before)
+    await mouth.pause(7)
+    for line in ["And now the weather for the weekend ahead.", "Heavy rain is expected across the north on Saturday.",
+                 "Thanks for watching, see you tomorrow."] {
+        try await tvTurn(line)
+    }
+    before = Report.ended()
+    try await turn(["Hey, you awake?"], by: "Samantha")
+    await mouth.pauseForReply(after: before)
+    await mouth.pause(1)
+    try await tvTurn("Coming up next, the late film.")
+    await mouth.pause(2)
+    print("  replies: \(Report.ended())")
+    running.cancel()
+    try? FileManager.default.removeItem(at: memoryFolder)
+    exit(0)
 }
 
 if household {

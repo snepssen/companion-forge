@@ -67,6 +67,22 @@ public struct Household: Codable, Equatable, Sendable {
         return seconds >= Self.long && score < Self.other ? .guest(score) : .unsure
     }
 
+    /// How like its person `print` is, if it knows them yet.
+    public func likeness(_ print: [Float]) -> Float? { owner.map { Self.cosine($0.print, print) } }
+
+    /// Whether a turn sounds enough like its person to wake it: a longer
+    /// one clearly, a short "hey" (too short to be sure of) roughly. Before
+    /// it knows them, anyone does.
+    public func wakes(_ print: [Float]?, seconds: Double) -> Bool {
+        guard let owner else { return true }
+        guard let print else { return false }
+        let score = Self.cosine(owner.print, print)
+        return score >= (seconds >= Self.long ? Self.same : Self.roughly)
+    }
+
+    /// A short turn this like its person may be them.
+    public static let roughly: Float = 0.6
+
     /// Forget their voice, to learn it again.
     public mutating func forget() { owner = nil }
 

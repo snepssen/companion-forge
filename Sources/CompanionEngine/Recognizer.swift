@@ -23,12 +23,17 @@ public actor Recognizer {
 
     /// What was said in `samples` (16 kHz mono); empty for nothing intelligible.
     public func transcribe(_ samples: [Float]) async throws -> String {
+        try await heard(samples).text
+    }
+
+    /// What was said, and how sure Parakeet is of it (0 to 1).
+    public func heard(_ samples: [Float]) async throws -> (text: String, confidence: Float) {
         try Task.checkCancellation()
-        guard samples.count >= 16_000 * 3 / 10 else { return "" }  // FluidAudio's minimum
+        guard samples.count >= 16_000 * 3 / 10 else { return ("", 0) }  // FluidAudio's minimum
         var state = TdtDecoderState.make()
         // English expected: left to guess, Parakeet wrote the name "Lin" in
         // Cyrillic once ("Лин"). The hint keeps it to the right alphabet.
         let result = try await manager.transcribe(samples, decoderState: &state, language: .english)
-        return result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (result.text.trimmingCharacters(in: .whitespacesAndNewlines), result.confidence)
     }
 }
