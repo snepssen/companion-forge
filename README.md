@@ -2,7 +2,12 @@
 
 A companion you talk with out loud, with a protogen visor for a face. It
 listens, waits until you have finished rather than until a timer runs out,
-answers in a voice, and learns how you pause. Everything runs locally.
+answers in a voice, and learns how you pause. It is one person's companion:
+it knows their voice, keeps a diary of their days, and catches up on what they
+told it. Everything runs locally, and what it remembers is encrypted on the
+device.
+
+It has run on an M1 Mac, an iPhone 17 and an iPad with M4.
 
     mic ─▶ echo canceller ─▶ VAD ─▶ turn taker ─▶ ASR ─▶ language model ─▶ voice ─▶ speakers
                                         ▲                                     │
@@ -13,9 +18,11 @@ answers in a voice, and learns how you pause. Everything runs locally.
 | VAD | Silero VAD v5 (ONNX) |
 | ASR | Parakeet Ultra through FluidAudio, on the Neural Engine |
 | language model | Gemma 4 E4B, 4-bit MLX (Qwen3 4B or Gemma 4 E2B for 8 GB phones) |
-| voice | voice-forge's English snepssen, on voice-core's Piper |
+| voice | the polyglot snepssen from voice-polyglot (the one `build.sh` bundles), on voice-core's Piper; English parts through voice-forge's English snepssen and its reading |
 | face | protoke's visor, ported to Swift and drawn as an LED panel |
 | memory | bge-small-en-v1.5 on MLX, over notes the language model writes |
+| whose voice | CAM++ voiceprints through FluidAudio |
+| dictionary | English Wiktionary (kaikki.org's extract), cut down to SQLite |
 
 ## Turns, not timers
 
@@ -36,9 +43,13 @@ the silence you were leaving anyway.
 
 ## Speaking out loud
 
-The microphone and the voice share one `AVAudioEngine` with Apple's voice
-processing on, which cancels the voice's echo. It can only subtract what it
-plays itself, so nothing is played any other way. Some echo always gets
+The microphone and the voice share one `AVAudioEngine`. On an iPhone or iPad
+Apple's voice processing is on, which cancels the voice's echo. It can only
+subtract what it plays itself, so nothing is played any other way. On a Mac
+it is not used: on the M1 (2026-10-20) its microphone side delivered nothing
+at all, whatever devices it was pointed at, so the microphone is taken as it
+is and the checks below keep the voice out, with the first words of a turn
+also checked against the end of the last reply. Some echo always gets
 through, so talking over a reply has to pass two checks. It has to sound like
 confident speech for 0.35 s. Then it is compared two ways. By its words: the
 reply's own voice coming back says the words being said. And by its level:
@@ -167,12 +178,128 @@ sister?" brought up the note and the turns behind it, and the reply was "You
 mentioned your sister Ana is visiting." "What's the weather like?" brought up
 nothing.
 
+## A diary and a calendar
+
+Under the notes are two layers the person never sees (`Journal.swift`). Once
+a conversation is written up, the companion writes a few lines about it, a
+diary of their days; once a week is over, its entries are summed up in a few
+more. Anything said with a date to it goes on a calendar, each entry pointing
+at the note and the diary entry it came from. Neither is a real calendar or
+anything they set up: it's what a friend who listens would know. `When.swift`
+reads the dates as people say them ("tonight", "on Friday", "this weekend",
+"the 3rd", "12 March", "in two weeks"), counted from the day they were said;
+birthdays and anniversaries come round every year.
+
+So "what have I got this week?" or "what did I do on Tuesday?" is answered
+from the calendar and the diary, and something on today (asked before it's
+evening) or tomorrow is brought up in passing ("isn't it your mum's birthday
+tomorrow?"), at most once every five days (`ccrun --journal`, `--weeks`).
+
+## Catching up, and saying hello
+
+A note about something with a time to it (an interview on Friday, Sam coming
+over tonight, guitar lessons just started) becomes worth asking about once
+it has happened or had a few days to go somewhere: an evening thing the next
+morning, a weekend on the Monday, something under way after a few days
+(`CheckIn.swift`). Mid-conversation, from the fourth turn and at a calm
+moment, it asks how it went; what they say is written up like anything else,
+so the memory moves on with them. Something they told it after the fact
+("the interview went well") is not asked about again. Whether a note has a
+time to it is read from its words: a 4B model asked to mark that seldom did.
+
+Opening the app after two hours or more, it says hello (`Greeting.swift`): a
+few words that fit the time of day and how long it's been, with anything to
+catch up on or coming up in the same breath. The first time ever, it says
+it's glad to meet them and asks their name. Back within two hours, it says
+nothing; they never really left (`ccrun --greet`, `--check-in`).
+
+## Sealed
+
+What it remembers, the conversation logs and the notes, diary and calendar,
+is sealed with AES-GCM (`Sealer.swift`) under a key made on first use and kept
+in the Keychain on this device only: never synced, never in a backup that
+could be restored elsewhere (`Vault.swift`). On an iPhone or iPad the folder
+is also unreadable while the device is locked; a Mac relies on the sealing,
+and on FileVault. Files written before sealing still open and are sealed the
+next time they are written. If the Keychain won't give the key it says so
+and runs unsealed; it never makes a new key over an old one, which would lock
+away everything sealed with it (`ccrun --seal-check`).
+
+## Its person, and guests
+
+It learns what its person sounds like (`Voices.swift`, `Voiceprint.swift`):
+the first voice it hears for long enough, kept as the average of CAM++
+voiceprints (through FluidAudio) of what they have said, steadier the more it
+hears. Anyone else is a guest, met kindly, told nothing it knows about its
+person, and kept out of its memory: each sees only their own side of the
+conversation. Told everything, it once told a guest about its person's nerves
+over a visit mentioned minutes before. Measured with `ccrun --speakers` on
+thirteen system voices, eight clips each: against an averaged print at 0.80,
+every clip over 1.5 s went to the right voice and none to a wrong one; short
+turns ("yeah", "hm") decide nothing.
+
+Out of a conversation, only its person starts one: left on all night, it had
+answered a TV and the street (`ccrun --overnight`). In one, a guest joins in
+if they are about as near as its person. "Know my voice" in Settings is on by
+default; the model is fetched the first time, and without it everyone is its
+person, as before.
+
+## When it's serious
+
+If what they say sounds like they might be thinking about suicide or hurting
+themselves, `Crisis.swift` hears it, and the reply follows what crisis lines
+train their volunteers to do rather than what makes a product feel covered:
+stay, listen, take it seriously, ask directly (asking doesn't put the idea
+there), and don't judge, argue, minimise, joke or tell them what to do. Clear
+words get all of that; words that might only mean a bad day ("I can't cope
+anymore") get a gentle "are you okay? Like, really?". In the first reply it
+mentions, once, the national line where they are (24 countries' lines,
+checked 2026-10-21 against Wikipedia's list and findahelpline.com, with the
+emergency number), as something for them and not a way of ending the
+conversation, and keeps talking for as long as they want. If two replies go
+by and the model still hasn't said it, the companion says it itself. Numbers
+are read digit by digit ("1 1 3"). Where it can't be sure of a line, it points
+to findahelpline.com. The next day it asks how they are doing, not how it went.
+
+## Who it is
+
+Three personalities, chosen in Settings (`Personality.swift`): **playful**
+(jokes, wordplay, plays along; the default), **gentle** (warm and calm, a soft
+smile now and then) and **deadpan** (dry wit, delivered straight). Playful
+and deadpan drop the act when they are having a hard time. Small models follow examples far
+better than descriptions, so each comes with a few lines in its voice: told
+only the rules, it was correct and flat (`ccrun --personality`).
+
+## Other languages
+
+Asked "how do you say breakfast in Romanian?", "what does köszönöm mean?" or
+"and in Polish?", it looks the word up before the model answers, in an
+offline dictionary built from English Wiktionary (`Dictionary.swift`,
+`scripts/build-dictionary.sh`, about 130 MB): translations between English
+and fifteen languages, and what English words mean. None of the three
+models knew "micul dejun"; told nothing is there, it says it doesn't know
+rather than guess.
+
+A sentence can mix languages (`Languages.swift`): a quoted word in the
+language they named, or one Apple's detector is sure of, and a whole
+sentence in another language, each spoken in its own language by the
+polyglot voice and joined, so "micul dejun" is said as Romanian inside an
+English sentence. The English parts go through voice-forge's reading; the
+eight languages the voice was trained on sound like it, and the rest go
+through plain espeak-ng, accent and all.
+
 ## Build
 
     scripts/fetch-models.sh        # Silero VAD, once
     ./build.sh                     # checks, then Companion.app and ccrun
 
-voice-forge must be beside this checkout for the voice. The language model is
+voice-forge must be beside this checkout: `Package.swift` takes its engine by
+path, for the English reading, and its English voice comes with it. The voice
+`build.sh` bundles is the polyglot snepssen (`scripts/polyglot-voice.sh`):
+voice-polyglot's newest export where it is beside this checkout, else its
+latest GitHub Release, checked against the release's SHA256SUMS and fetched
+again when a newer one is out. The first build also fetches English
+Wiktionary's extract (523 MB) and cuts the dictionary from it. The language model is
 downloaded from the app's settings; one already in translate-core's `models/`
 is used as it is. `swift run cccheck` holds the model-free parts to their
 cases in seconds.
@@ -187,9 +314,9 @@ It offers the language models that fit beside recognition, the embedder and
 the voice: Qwen3 4B or Gemma 4 E2B on an 8 GB iPhone (with the increased
 memory entitlement), Gemma 4 E4B from 12 GB. It listens while it is on screen;
 leaving the app stops it and writes the conversation up, and coming back
-starts it again. MLX needs a
-real GPU, so there is no Simulator build. It compiles and links for devices
-(2026-10-20) but has not been signed or run on one yet.
+starts it again, and the screen stays on while it is in front. MLX needs a
+real GPU, so there is no Simulator build. It has run on an iPhone 17 and an
+iPad with M4.
 
 `ccrun` plays recorded speech through the live loop in real time, with the
 reply's echo leaking back into the "microphone" at a chosen level:
@@ -241,7 +368,7 @@ one shared package once both apps settle on them.
 
 ## Next
 
-- Running the iPhone and iPad app on a device: signing, then measuring
-  memory and lag on an 8 GB iPhone.
+- Measuring memory and lag on the iPhone and iPad as on the Mac: it runs on
+  an iPhone 17 and an iPad with M4, but the numbers above are the Mac's.
 - Desktop beyond the Mac, and Android: llama.cpp and sherpa-onnx, as
   translate-core's Android port runs Silero, Parakeet and Piper already.
