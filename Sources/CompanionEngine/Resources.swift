@@ -1,4 +1,5 @@
 import Foundation
+import ModelStore
 import VoiceCore
 
 /// Where things live: models and data in the app bundle when built by
@@ -17,6 +18,12 @@ public enum Resources {
     public static var conversations: URL { support.appending(path: "Conversations") }
     public static var timing: URL { support.appending(path: "turn-timing.json") }
     public static var memory: URL { support.appending(path: "memory.json") }
+
+    /// This app's models, then this checkout's models/. A mismatched symlink is left alone.
+    public static let models = ModelStore(
+        directory: support.appending(path: "Models"),
+        alsoSearching: [checkout.appending(path: "models")],
+        leaveLinks: true)
 
     static let voicePolyglot = checkout.deletingLastPathComponent().appending(path: "voice-polyglot")
     static let polyglotName = "snepssen-polyglot.onnx"

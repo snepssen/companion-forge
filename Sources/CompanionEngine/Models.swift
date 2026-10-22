@@ -1,5 +1,6 @@
 import CompanionCore
 import Foundation
+import ModelStore
 
 /// A language model the companion can talk with, pinned to a revision.
 ///
@@ -7,9 +8,7 @@ import Foundation
 /// (scripts/compare-models.py, the complete-thought judge): Gemma 4 E4B is the
 /// best of them and wants a Mac or a 12 GB iPhone; Qwen3 4B and Gemma 4 E2B
 /// fit an 8 GB phone beside speech recognition and the voice.
-public struct ChatModel: Pinned, Identifiable, Hashable, Sendable {
-    public typealias File = PinnedFile
-
+public struct ChatModel: StoredModel, Identifiable, Hashable, Sendable {
     /// How it picks its words: each family's own recommendation, tempered
     /// for talk. Qwen3 at Gemma's settings looped, correcting itself
     /// sentence after sentence ("peşte… no… cină… no…").
@@ -35,7 +34,9 @@ public struct ChatModel: Pinned, Identifiable, Hashable, Sendable {
     public let revision: String
     /// Peak memory while generating, measured on a Mac.
     public let memoryGB: Double
-    public let files: [File]
+    public let files: [ModelFile]
+    /// Bytes to fetch: the sum of the pinned file sizes.
+    public var download: Int64 { files.reduce(0) { $0 + $1.size } }
 
     /// Whether this device has the memory for it alongside recognition and the voice.
     public var fits: Bool {
@@ -102,146 +103,21 @@ public enum ModelCatalog {
     public static func model(_ id: String?) -> ChatModel? { all.first { $0.id == id } }
 }
 
-public struct PinnedFile: Hashable, Sendable {
-    let name: String
-    let size: Int64
-}
-
-/// A model at a fixed revision of a Hugging Face repository, file by file.
-public protocol Pinned: Sendable {
-    var id: String { get }
-    var repo: String { get }
-    var revision: String { get }
-    var files: [PinnedFile] { get }
-}
-
-extension Pinned {
-    public var download: Int64 { files.reduce(0) { $0 + $1.size } }
-}
-
 /// The embedding model notes are found by: bge-small-en-v1.5, 33 million
 /// parameters. Apple's built-in sentence embedding was tried first and ranked
 /// "They work night shifts as a nurse" above "They have no eggs at home" for
 /// "What should I make for breakfast?".
-public struct EmbedderModel: Pinned {
+public struct EmbedderModel: StoredModel {
     public let id = "bge-small-en-v1.5"
     public let repo = "BAAI/bge-small-en-v1.5"
     public let revision = "5c38ec7c405ec4b44b94cc5a9bb96e735b38267a"
-    public let files: [PinnedFile] = [
+    public let files: [ModelFile] = [
         .init(name: "1_Pooling/config.json", size: 190), .init(name: "config.json", size: 743),
         .init(name: "model.safetensors", size: 133_466_304), .init(name: "special_tokens_map.json", size: 125),
         .init(name: "tokenizer.json", size: 711_396), .init(name: "tokenizer_config.json", size: 366),
         .init(name: "vocab.txt", size: 231_508),
     ]
     public init() {}
-}
-
-/// Models on this device: fetched file by file from their pinned revision into
-/// Application Support, sizes checked so a cut-off download is fetched again
-/// rather than loaded, and kept out of backups. A symlink counts: the size is
-/// the file it names, which is how a model linked by `scripts/fetch-models.sh`
-/// is found. For development, this checkout's models/ count too.
-public enum ModelStore {
-    static var directory: URL { Resources.support.appending(path: "Models") }
-
-    static func folders(for model: some Pinned) -> [URL] {
-        [directory, Resources.checkout.appending(path: "models")].map { $0.appending(path: model.id) }
-    }
-
-    public static func location(of model: some Pinned) -> URL? {
-        folders(for: model).first { folder in model.files.allSatisfy { fileSize(folder.appending(path: $0.name)) == $0.size } }
-    }
-
-    public static func isDownloaded(_ model: some Pinned) -> Bool { location(of: model) != nil }
-
-    /// Fetch whatever of `model` isn't here yet; `progress` runs from 0 to 1.
-    @discardableResult
-    public static func download(_ model: some Pinned, progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
-        if let found = location(of: model) { return found }
-        let folder = directory.appending(path: model.id)
-        // A link that doesn't match is left alone. Writing through it would
-        // change the files it names.
-        if SharedModels.isLink(folder) {
-            throw Problem("\(model.id) in the model store is a link, and its files are not the ones this build expects. The link was left as it is.")
-        }
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        var values = URLResourceValues()
-        values.isExcludedFromBackup = true
-        var excluded = folder
-        try excluded.setResourceValues(values)
-        var done: Int64 = 0
-        for file in model.files {
-            let target = folder.appending(path: file.name)
-            if fileSize(target) == file.size {
-                done += file.size
-                continue
-            }
-            let url = URL(string: "https://huggingface.co/\(model.repo)/resolve/\(model.revision)/\(file.name)")!
-            let base = done
-            let downloaded = try await Download.fetch(url) { written in
-                progress(Double(base + written) / Double(model.download))
-            }
-            defer { try? FileManager.default.removeItem(at: downloaded) }
-            guard fileSize(downloaded) == file.size else {
-                throw Problem("\(file.name) arrived as \(fileSize(downloaded) ?? 0) bytes, not \(file.size). Try again on a steady connection.")
-            }
-            try? FileManager.default.removeItem(at: target)
-            try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try FileManager.default.moveItem(at: downloaded, to: target)
-            done += file.size
-        }
-        progress(1)
-        return folder
-    }
-
-    static func fileSize(_ url: URL) -> Int64? { SharedModels.byteCount(url) }
-}
-
-/// One file, with the bytes written so far reported as they arrive.
-final class Download: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
-    private let progress: @Sendable (Int64) -> Void
-    private var continuation: CheckedContinuation<URL, Error>?
-
-    private init(progress: @escaping @Sendable (Int64) -> Void) { self.progress = progress }
-
-    static func fetch(_ url: URL, progress: @escaping @Sendable (Int64) -> Void) async throws -> URL {
-        let download = Download(progress: progress)
-        let session = URLSession(configuration: .default, delegate: download, delegateQueue: nil)
-        defer { session.finishTasksAndInvalidate() }
-        return try await withCheckedThrowingContinuation { continuation in
-            download.continuation = continuation
-            session.downloadTask(with: url).resume()
-        }
-    }
-
-    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData _: Int64,
-                    totalBytesWritten: Int64, totalBytesExpectedToWrite _: Int64) {
-        progress(totalBytesWritten)
-    }
-
-    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
-        guard let response = downloadTask.response as? HTTPURLResponse, (200..<300).contains(response.statusCode) else {
-            continuation?.resume(throwing: Problem("The model server did not return a successful HTTP response."))
-            continuation = nil
-            return
-        }
-        // The temporary file is deleted when this returns; keep it.
-        let kept = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
-        do {
-            try FileManager.default.moveItem(at: location, to: kept)
-            continuation?.resume(returning: kept)
-        } catch {
-            continuation?.resume(throwing: error)
-        }
-        continuation = nil
-    }
-
-    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        if let error {
-            continuation?.resume(throwing: error)
-            continuation = nil
-        }
-    }
 }
 
 struct Problem: LocalizedError {

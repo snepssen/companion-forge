@@ -3,6 +3,7 @@ import MLX
 import MLXEmbedders
 import MLXHuggingFace
 import MLXLMCommon
+import ModelStore
 import Tokenizers
 
 /// Sentences to vectors, for finding notes by meaning: bge-small-en-v1.5 on
@@ -17,7 +18,7 @@ public actor Embedder {
 
     /// Load it, downloading it first (134 MB) if it isn't here.
     public static func load(progress: @escaping @Sendable (Double) -> Void = { _ in }) async throws -> Embedder {
-        let directory = try await ModelStore.download(model, progress: progress)
+        let directory = try await Resources.models.download(model, progress: progress)
         let context = try await EmbedderModelFactory.shared.load(from: directory, using: #huggingFaceTokenizerLoader())
         return Embedder(context)
     }

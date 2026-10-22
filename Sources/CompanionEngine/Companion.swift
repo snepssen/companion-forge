@@ -1,5 +1,6 @@
 import CompanionCore
 import Foundation
+import ModelStore
 import Observation
 import SampleBuffer
 import SileroVAD
@@ -226,7 +227,7 @@ public final class Companion {
     }
 
     private func loadBrain() async throws {
-        guard let directory = ModelStore.location(of: model) else {
+        guard let directory = Resources.models.location(of: model) else {
             phase = .needsModel
             return
         }
@@ -241,7 +242,7 @@ public final class Companion {
         phase = .ready
     }
 
-    public func isDownloaded(_ model: ChatModel) -> Bool { ModelStore.isDownloaded(model) }
+    public func isDownloaded(_ model: ChatModel) -> Bool { Resources.models.isDownloaded(model) }
 
     /// Switch to `model`, downloading it first if need be.
     public func use(_ model: ChatModel) async {
@@ -249,9 +250,9 @@ public final class Companion {
         self.model = model
         UserDefaults.standard.set(model.id, forKey: "model")
         do {
-            if !ModelStore.isDownloaded(model) {
+            if !Resources.models.isDownloaded(model) {
                 downloading = (model, 0)
-                try await ModelStore.download(model) { [weak self] progress in
+                try await Resources.models.download(model) { [weak self] progress in
                     Task { @MainActor in self?.downloading = (model, progress) }
                 }
                 downloading = nil
