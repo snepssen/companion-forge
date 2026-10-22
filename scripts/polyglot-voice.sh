@@ -3,7 +3,7 @@
 # beside it), or fail.
 #
 # Where training happens, that is voice-polyglot's newest export beside
-# translate-core (work/runs/polyglot/exports/epoch-NNN/, folders with a suffix
+# interpreter-forge (work/runs/polyglot/exports/epoch-NNN/, folders with a suffix
 # such as epoch-047-before-retrim are not milestones). Anywhere else it is
 # the latest GitHub Release of voice-polyglot, the one place the voice is
 # published: fetched into models/voice/, checked against its SHA256SUMS, and

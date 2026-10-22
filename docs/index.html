@@ -5,22 +5,22 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>companion-core</title>
+<title>companion-forge</title>
 <meta name="description" content="A companion you talk with out loud, on a Mac, iPhone or iPad. It listens until you have finished, answers in a voice, and keeps what it remembers encrypted on the device.">
-<meta property="og:title" content="companion-core">
+<meta property="og:title" content="companion-forge">
 <meta property="og:description" content="A protogen LED-visor face, a voice, and a memory sealed on the device. It has run on an M1 Mac, an iPhone 17 and an iPad with M4.">
 <meta property="og:type" content="website">
-<meta property="og:url" content="https://snepssen.github.io/companion-core/">
-<meta property="og:image" content="https://snepssen.github.io/companion-core/preview.png">
+<meta property="og:url" content="https://snepssen.github.io/companion-forge/">
+<meta property="og:image" content="https://snepssen.github.io/companion-forge/preview.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="The companion-core page">
+<meta property="og:image:alt" content="The companion-forge page">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="stylesheet" href="fonts.css">
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="ecosystem.css">
 </head>
-<body data-project="companion-core">
+<body data-project="companion-forge">
 
 <span class="ecosystem-page-top" id="page-top" aria-hidden="true"></span>
 <div class="ecosystem-progress" aria-hidden="true"><span></span></div>
@@ -98,7 +98,7 @@
         <span class="ecosystem-rail__identity-path">
           <span>Snepssen</span><i>/</i><span>Workshop</span><i>/</i>
         </span>
-        <strong>companion-core</strong>
+        <strong>companion-forge</strong>
       </span>
       <span class="ecosystem-rail__chevron" aria-hidden="true"></span>
     </button>
@@ -109,8 +109,8 @@
       <a data-project="media-preflight" style="--project-accent: var(--eco-preflight)" href="https://snepssen.github.io/media-preflight/">Media Preflight</a>
       <a data-project="siphon" style="--project-accent: var(--eco-siphon)" href="https://snepssen.github.io/siphon/">siphon</a>
       <a data-project="auto-sort" style="--project-accent: var(--eco-autosort)" href="https://snepssen.github.io/auto-sort/">auto-sort</a>
-      <a data-project="translate-core" style="--project-accent: var(--eco-interpreter)" href="https://snepssen.github.io/translate-core/">Interpreter</a>
-      <a data-project="companion-core" style="--project-accent: var(--eco-companion)" href="https://snepssen.github.io/companion-core/">companion-core</a>
+      <a data-project="interpreter-forge" style="--project-accent: var(--eco-interpreter)" href="https://snepssen.github.io/interpreter-forge/">Interpreter</a>
+      <a data-project="companion-forge" style="--project-accent: var(--eco-companion)" href="https://snepssen.github.io/companion-forge/">companion-forge</a>
       <a data-project="tools-core" style="--project-accent: var(--eco-tools)" href="https://snepssen.github.io/tools-core/">tools-core</a>
       <a data-project="voice-polyglot" style="--project-accent: var(--eco-polyglot)" href="https://github.com/snepssen/voice-polyglot">voice-polyglot</a>
       <a data-project="voice-core" style="--project-accent: var(--eco-voicecore)" href="https://github.com/snepssen/voice-core">voice-core</a>
@@ -122,7 +122,7 @@
 <div class="wrap">
 <header id="top">
   <span class="badge"><span class="dot"></span>Mac · iPhone · iPad</span>
-  <h1>companion-core</h1>
+  <h1>companion-forge</h1>
   <p class="subhead">A companion you talk with out loud, with a protogen visor for a face. It listens, waits until you have finished rather than until a timer runs out, answers in a voice, and learns how you pause. It is one person's companion: it knows their voice, keeps a diary of their days, and catches up on what they told it. Everything runs locally, and what it remembers is encrypted on the device.</p>
   <div class="headmeta">
     <span><b>M1</b> Mac · iPhone 17 · iPad M4</span>
@@ -173,7 +173,7 @@ dictionary       English Wiktionary, cut down to SQLite</pre>
 <section id="turns">
   <p class="eyebrow">Turns, not timers</p>
   <h2>It waits for a silence longer than yours</h2>
-  <p class="lede">translate-core cuts speech on pauses, punctuation and a fixed 5 second ceiling. A conversation can do better. Every time you go quiet and then carry on, that gap was a pause inside your turn, and the companion keeps the last 200 of them.</p>
+  <p class="lede">interpreter-forge cuts speech on pauses, punctuation and a fixed 5 second ceiling. A conversation can do better. Every time you go quiet and then carry on, that gap was a pause inside your turn, and the companion keeps the last 200 of them.</p>
   <p>It waits for a silence longer than nearly all of those: the 90th percentile, shortened after a question, lengthened when the words so far trail off on &ldquo;and&rdquo; or &ldquo;um&rdquo;, and pushed out further each time a reply cut you off. It starts at 0.9 seconds and moves from there. What it has learned is shown in Settings.</p>
   <p>The reply is drafted while you are still pausing, as soon as the pause is long enough to be worth a guess: transcribed, written and turned into speech, but held. If you carry on, it is thrown away. If the pause runs to the learned wait, what is ready plays at once. Most of the model's time is spent inside the silence you were leaving anyway.</p>
 </section>
@@ -283,7 +283,7 @@ dictionary       English Wiktionary, cut down to SQLite</pre>
 <section id="get">
   <p class="eyebrow">Getting it</p>
   <h2>Built from source, beside voice-forge</h2>
-  <p>voice-forge has to be checked out beside this one. The package takes its engine by path, for the English reading, and its English voice comes with it. The voice the build bundles is voice-polyglot's newest export where that checkout is beside this one, otherwise its latest GitHub release, checked against the release's SHA256SUMS and fetched again when a newer one is out. The first build also fetches English Wiktionary's extract, 523 MB, and cuts the dictionary from it. The language model is downloaded from Settings. One already in translate-core's <span class="mono">models/</span> is used as it is.</p>
+  <p>voice-forge has to be checked out beside this one. The package takes its engine by path, for the English reading, and its English voice comes with it. The voice the build bundles is voice-polyglot's newest export where that checkout is beside this one, otherwise its latest GitHub release, checked against the release's SHA256SUMS and fetched again when a newer one is out. The first build also fetches English Wiktionary's extract, 523 MB, and cuts the dictionary from it. The language model is downloaded from Settings. One already in interpreter-forge's <span class="mono">models/</span> is used as it is.</p>
   <pre class="code"><span class="c"># voice-forge beside this checkout</span>
 scripts/fetch-models.sh <span class="c"># Silero VAD, once</span>
 ./build.sh               <span class="c"># checks, then Companion.app and ccrun</span>
@@ -291,14 +291,14 @@ swift run cccheck        <span class="c"># the model-free parts, held to their c
 
 iOS/build-ios.sh         <span class="c"># build, install on a connected iPhone or iPad</span>
 iOS/build-ios.sh --no-install</pre>
-  <p>The iPhone and iPad app is the same engine and views, generated with xcodegen as translate-core's is. It offers the models that fit beside recognition, the embedder and the voice: Qwen3 4B or Gemma 4 E2B on an 8 GB iPhone, with the increased memory entitlement, and Gemma 4 E4B from 12 GB. It listens while it is on screen. Leaving the app stops it and writes the conversation up, and coming back starts it again. The screen stays on while it is in front. MLX needs a real GPU, so there is no Simulator build. It has run on an iPhone 17 and an iPad with M4.</p>
+  <p>The iPhone and iPad app is the same engine and views, generated with xcodegen as interpreter-forge's is. It offers the models that fit beside recognition, the embedder and the voice: Qwen3 4B or Gemma 4 E2B on an 8 GB iPhone, with the increased memory entitlement, and Gemma 4 E4B from 12 GB. It listens while it is on screen. Leaving the app stops it and writes the conversation up, and coming back starts it again. The screen stays on while it is in front. MLX needs a real GPU, so there is no Simulator build. It has run on an iPhone 17 and an iPad with M4.</p>
 </section>
 
 <section id="limits">
   <p class="eyebrow">Honesty</p>
   <h2>What has not been measured yet</h2>
   <p>It has run on an M1 Mac, an iPhone 17 and an iPad with M4. The numbers above are the Mac's. Memory and lag on the phone and the tablet are still to be measured the same way.</p>
-  <p>The spatial voice has not been heard on AirPods. The camera, and the phone's stereo microphones, have not been tried on a device. Desktop beyond the Mac, and Android, are not this app: the README's next step is llama.cpp and sherpa-onnx, as translate-core's Android port already runs Silero, Parakeet and Piper.</p>
+  <p>The spatial voice has not been heard on AirPods. The camera, and the phone's stereo microphones, have not been tried on a device. Desktop beyond the Mac, and Android, are not this app: the README's next step is llama.cpp and sherpa-onnx, as interpreter-forge's Android port already runs Silero, Parakeet and Piper.</p>
   <p>The sad side of the visor is unused on purpose. If the Keychain will not give the key, it says so and runs unsealed rather than inventing a new key. Without the voiceprint model, everyone is treated as its person.</p>
 </section>
 
@@ -308,7 +308,7 @@ iOS/build-ios.sh --no-install</pre>
   <p>Depends on <a href="https://github.com/snepssen/voice-core">voice-core</a> for Piper.</p>
   <p>Uses <a href="https://snepssen.github.io/voice-forge/">Voice Forge</a>'s English snepssen voice and its reading.</p>
   <p>Uses <a href="https://github.com/snepssen/voice-polyglot">voice-polyglot</a>'s snepssen voice, the one the build bundles.</p>
-  <p>Reuses <a href="https://snepssen.github.io/translate-core/">Interpreter</a>'s speech pipeline pieces, copied with small changes: Silero VAD, Voice, SampleBuffer, the model store and PromptCache.</p>
+  <p>Reuses <a href="https://snepssen.github.io/interpreter-forge/">Interpreter</a>'s speech pipeline pieces, copied with small changes: Silero VAD, Voice, SampleBuffer, the model store and PromptCache.</p>
   <p>Ports <a href="https://snepssen.github.io/protoke/">Protoke</a>'s protogen visor to Swift, drawn as an LED panel.</p>
 </section>
 
@@ -363,19 +363,19 @@ iOS/build-ios.sh --no-install</pre>
       <p>Empty the Downloads funnel into structure the folder taught it, and undo any of it.</p>
       <span class="ecosystem-card__go">Explore auto-sort →</span>
     </a>
-    <a class="ecosystem-card" data-project="translate-core" style="--card-accent: var(--eco-interpreter)" href="https://snepssen.github.io/translate-core/">
+    <a class="ecosystem-card" data-project="interpreter-forge" style="--card-accent: var(--eco-interpreter)" href="https://snepssen.github.io/interpreter-forge/">
       <div class="ecosystem-card__index"><span>07 / INTERPRETING</span><span>macOS · iPhone</span></div>
       <div class="ecosystem-card__glyph" aria-hidden="true">halb elf → 10:30</div>
       <h3>Interpreter</h3>
       <p>Hear the table in English a few seconds behind, cut at the end of each thought, on your own phone.</p>
       <span class="ecosystem-card__go">Explore Interpreter →</span>
     </a>
-    <a class="ecosystem-card" data-project="companion-core" style="--card-accent: var(--eco-companion)" href="https://snepssen.github.io/companion-core/" aria-current="page">
+    <a class="ecosystem-card" data-project="companion-forge" style="--card-accent: var(--eco-companion)" href="https://snepssen.github.io/companion-forge/" aria-current="page">
       <div class="ecosystem-card__index"><span>08 / COMPANION</span><span>Mac · iPhone · iPad</span></div>
       <div class="ecosystem-card__glyph" aria-hidden="true">mic → visor</div>
-      <h3>companion-core</h3>
+      <h3>companion-forge</h3>
       <p>A local voice companion for Mac, iPhone and iPad, with a protogen LED-visor face.</p>
-      <span class="ecosystem-card__go">Explore companion-core →</span>
+      <span class="ecosystem-card__go">Explore companion-forge →</span>
     </a>
     <a class="ecosystem-card" data-project="tools-core" style="--card-accent: var(--eco-tools)" href="https://snepssen.github.io/tools-core/">
       <div class="ecosystem-card__index"><span>09 / FIELD TOOLS</span><span>Python · shell</span></div>
@@ -413,14 +413,14 @@ iOS/build-ios.sh --no-install</pre>
   <h2>If something looks wrong, say so</h2>
   <p>There is no analytics here and no crash reporter, so a failure has no way of reaching me on its own.</p>
   <div class="contact-card">
-    <a href="https://github.com/snepssen/companion-core/issues">Open an issue<span>github.com/snepssen/companion-core ↗</span></a>
+    <a href="https://github.com/snepssen/companion-forge/issues">Open an issue<span>github.com/snepssen/companion-forge ↗</span></a>
     <a href="https://t.me/snepssen">Telegram<span>@snepssen ↗</span></a>
     <a href="mailto:snepssen@proton.me">Email<span>snepssen@proton.me ↗</span></a>
   </div>
 </section>
 
 <footer>
-  <a href="https://github.com/snepssen/companion-core">github.com/snepssen/companion-core</a> · part of the <a href="https://snepssen.github.io/tools-core/">snepssen workshop</a>
+  <a href="https://github.com/snepssen/companion-forge">github.com/snepssen/companion-forge</a> · part of the <a href="https://snepssen.github.io/tools-core/">snepssen workshop</a>
 </footer>
 
 </div>

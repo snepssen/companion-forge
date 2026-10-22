@@ -1,4 +1,4 @@
-# companion-core
+# companion-forge
 
 A companion you talk with out loud, with a protogen visor for a face. It
 listens, waits until you have finished rather than until a timer runs out,
@@ -26,7 +26,7 @@ It has run on an M1 Mac, an iPhone 17 and an iPad with M4.
 
 ## Turns, not timers
 
-translate-core cut speech on pauses, punctuation and a fixed 5 s ceiling. A
+interpreter-forge cut speech on pauses, punctuation and a fixed 5 s ceiling. A
 conversation can do better, because every time you go quiet and then carry on,
 that gap was a pause inside your turn. The turn taker (`TurnTaking.swift`)
 keeps the last 200 of those and waits for a silence longer than nearly all of
@@ -337,12 +337,12 @@ latest GitHub Release, checked against the release's SHA256SUMS and fetched
 again when a newer one is out. No separate English voice is fetched. The
 first build also fetches English Wiktionary's extract (523 MB) and cuts the
 dictionary from it. The language model is
-downloaded from the app's settings; one already in translate-core's `models/`
+downloaded from the app's settings; one already in interpreter-forge's `models/`
 is used as it is. `swift run cccheck` holds the model-free parts to their
 cases in seconds.
 
 The iPhone and iPad app is the same engine and views (`iOS/`, generated
-with xcodegen as translate-core's is):
+with xcodegen as interpreter-forge's is):
 
     iOS/build-ios.sh               # build, install on a connected iPhone or iPad
     iOS/build-ios.sh --no-install
@@ -397,10 +397,10 @@ sixteenth turn re-read about 230 tokens, and its first words came 1.86 s
 after you finished instead of 0.31 s (`ccrun --long`). With both changes,
 every turn of a 22-turn conversation started in 0.31 to 0.37 s.
 
-## From translate-core
+## From interpreter-forge
 
 `SileroVAD`, `Voice`, `SampleBuffer`, the model store and `PromptCache` are
-translate-core's, copied with small changes. Like voice-core, they belong in
+interpreter-forge's, copied with small changes. Like voice-core, they belong in
 one shared package once both apps settle on them.
 
 ## Next
@@ -408,4 +408,4 @@ one shared package once both apps settle on them.
 - Measuring memory and lag on the iPhone and iPad as on the Mac: it runs on
   an iPhone 17 and an iPad with M4, but the numbers above are the Mac's.
 - Desktop beyond the Mac, and Android: llama.cpp and sherpa-onnx, as
-  translate-core's Android port runs Silero, Parakeet and Piper already.
+  interpreter-forge's Android port runs Silero, Parakeet and Piper already.

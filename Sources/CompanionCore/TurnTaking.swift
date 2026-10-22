@@ -36,7 +36,7 @@ public enum Ending: String, Codable, Sendable {
 /// How long this person pauses mid-thought, learned from the pauses they came
 /// back from, and so how long a silence means they have finished.
 ///
-/// translate-core waited on pauses, punctuation and a fixed 5 s ceiling. A
+/// interpreter-forge waited on pauses, punctuation and a fixed 5 s ceiling. A
 /// conversation can do better: every time someone goes quiet and then carries
 /// on, that gap was a pause inside their turn, and the turn is over once a
 /// silence runs longer than nearly all of those. The wait sits at the 90th

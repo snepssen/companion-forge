@@ -11,7 +11,7 @@ import Tokenizers
 ///
 /// The attention cache is kept between turns and each reply reads only what
 /// changed since the last one. On an M1 reading the prompt costs as much as
-/// writing the answer (translate-core's measurement), and in a conversation
+/// writing the answer (interpreter-forge's measurement), and in a conversation
 /// almost all of the prompt is the same each time: the instructions and every
 /// turn before this one.
 public actor Brain {
@@ -275,7 +275,7 @@ enum Prompts {
 }
 
 /// An attention cache and the tokens it holds, reused across calls that share
-/// a prefix. translate-core's.
+/// a prefix. interpreter-forge's.
 struct PromptCache {
     private(set) var kv: [KVCache]
     private let freshCache: () throws -> [KVCache]

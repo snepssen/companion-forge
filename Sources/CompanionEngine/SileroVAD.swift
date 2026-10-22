@@ -3,7 +3,7 @@ import OnnxRuntimeBindings
 import VoiceCore
 
 /// Silero VAD v5 on 32 ms frames, with hysteresis on its speech probability.
-/// translate-core's, with the probability kept: talking over a reply takes a
+/// interpreter-forge's, with the probability kept: talking over a reply takes a
 /// surer voice than talking into silence. Each frame goes in with the last 64
 /// samples of the one before, which the v5 graph expects.
 public final class SileroVAD: @unchecked Sendable {

@@ -1,4 +1,4 @@
-"""companion-core's project page, as a catalogue.
+"""companion-forge's project page, as a catalogue.
 
 Everything particular to this project lives here; `build.py` supplies the
 chrome every page in the family shares. Adding a section is a dict in
@@ -40,9 +40,9 @@ MODELS = """  <table>
 
 PAGE = {
     "meta": {
-        "slug": "companion-core",
-        "name": "companion-core",
-        "title": "companion-core",
+        "slug": "companion-forge",
+        "name": "companion-forge",
+        "title": "companion-forge",
         "badge": "Mac · iPhone · iPad",
         "fonts": FONTS,
         "description": (
@@ -86,7 +86,7 @@ PAGE = {
             "heading": "It waits for a silence longer than yours",
             "blocks": [
                 {"kind": "prose", "class": "lede", "text": [
-                    "translate-core cuts speech on pauses, punctuation and a "
+                    "interpreter-forge cuts speech on pauses, punctuation and a "
                     "fixed 5 second ceiling. A conversation can do better. "
                     "Every time you go quiet and then carry on, that gap was "
                     "a pause inside your turn, and the companion keeps the "
@@ -511,7 +511,7 @@ PAGE = {
                     "The first build also fetches English Wiktionary's "
                     "extract, 523 MB, and cuts the dictionary from it. The "
                     "language model is downloaded from Settings. One already "
-                    "in translate-core's <span class=\"mono\">models/</span> is "
+                    "in interpreter-forge's <span class=\"mono\">models/</span> is "
                     "used as it is.",
                 ]},
                 {"kind": "raw", "html": """  <pre class="code"><span class="c"># voice-forge beside this checkout</span>
@@ -523,7 +523,7 @@ iOS/build-ios.sh         <span class="c"># build, install on a connected iPhone 
 iOS/build-ios.sh --no-install</pre>"""},
                 {"kind": "prose", "text": [
                     "The iPhone and iPad app is the same engine and views, "
-                    "generated with xcodegen as translate-core's is. It offers "
+                    "generated with xcodegen as interpreter-forge's is. It offers "
                     "the models that fit beside recognition, the embedder "
                     "and the voice: Qwen3 4B or Gemma 4 E2B on an 8 GB "
                     "iPhone, with the increased memory entitlement, and "
@@ -551,7 +551,7 @@ iOS/build-ios.sh --no-install</pre>"""},
                     "camera, and the phone's stereo microphones, have not "
                     "been tried on a device. Desktop beyond the Mac, and "
                     "Android, are not this app: the README's next step is "
-                    "llama.cpp and sherpa-onnx, as translate-core's Android "
+                    "llama.cpp and sherpa-onnx, as interpreter-forge's Android "
                     "port already runs Silero, Parakeet and Piper.",
                     "The sad side of the visor is unused on purpose. If the "
                     "Keychain will not give the key, it says so and runs "
@@ -563,7 +563,7 @@ iOS/build-ios.sh --no-install</pre>"""},
     ],
 
     "footer": [
-        '<a href="https://github.com/snepssen/companion-core">github.com/snepssen/companion-core</a>'
+        '<a href="https://github.com/snepssen/companion-forge">github.com/snepssen/companion-forge</a>'
         ' · part of the <a href="https://snepssen.github.io/tools-core/">snepssen workshop</a>',
     ],
 }

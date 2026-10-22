@@ -7,7 +7,7 @@ import VoiceCore
 public enum Resources {
     static let checkout = URL(fileURLWithPath: #filePath)  // Sources/CompanionEngine/Resources.swift
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-    static let translateCore = checkout.deletingLastPathComponent().appending(path: "translate-core")
+    static let interpreterForge = checkout.deletingLastPathComponent().appending(path: "interpreter-forge")
 
     /// What the companion keeps: learned turn timing, conversation logs, models.
     public static var support: URL {
@@ -29,7 +29,7 @@ public enum Resources {
     public static var polyglotVoice: URL? {
         first(bundled(polyglotName), newestExport(in: voicePolyglot.appending(path: "work/runs/polyglot/exports")),
               checkout.appending(path: "models/voice/\(polyglotName)"),
-              translateCore.appending(path: "models/voice/\(polyglotName)"))
+              interpreterForge.appending(path: "models/voice/\(polyglotName)"))
     }
 
     static func newestExport(in folder: URL) -> URL? {
@@ -51,7 +51,7 @@ public enum Resources {
 
     public static var vad: URL? {
         first(bundled("silero_vad.onnx"), checkout.appending(path: "models/silero_vad.onnx"),
-              translateCore.appending(path: "models/silero_vad.onnx"))
+              interpreterForge.appending(path: "models/silero_vad.onnx"))
     }
 
     private static func bundled(_ name: String) -> URL? { Bundle.main.resourceURL?.appending(path: name) }

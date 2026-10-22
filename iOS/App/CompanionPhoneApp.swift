@@ -9,7 +9,7 @@ struct CompanionPhoneApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView(companion: companion)
-                // It listens while it is on screen, as translate-core's
+                // It listens while it is on screen, as interpreter-forge's
                 // Interpreter does: iOS takes the microphone and the GPU away
                 // from an app in the background. Leaving stops it and writes
                 // the conversation up; coming back starts it again.

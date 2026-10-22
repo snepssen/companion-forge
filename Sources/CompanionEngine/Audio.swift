@@ -3,7 +3,7 @@ import Foundation
 import ObjCExceptions
 
 /// Samples the microphone has delivered, 16 kHz mono, shared between the audio
-/// thread that appends and the loop that reads. (translate-core's, as is.)
+/// thread that appends and the loop that reads. (interpreter-forge's, as is.)
 public final class SampleBuffer: @unchecked Sendable {
     private let lock = NSLock()
     private var samples: [Float] = []

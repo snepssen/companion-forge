@@ -2,7 +2,7 @@ import Foundation
 
 /// A language model the companion can talk with, pinned to a revision.
 ///
-/// Generalists, small enough for a phone, measured in translate-core
+/// Generalists, small enough for a phone, measured in interpreter-forge
 /// (scripts/compare-models.py, the complete-thought judge): Gemma 4 E4B is the
 /// best of them and wants a Mac or a 12 GB iPhone; Qwen3 4B and Gemma 4 E2B
 /// fit an 8 GB phone beside speech recognition and the voice.
@@ -47,7 +47,7 @@ public struct ChatModel: Pinned, Identifiable, Hashable, Sendable {
 }
 
 public enum ModelCatalog {
-    // translate-core's pins, sizes and measurements, so a model downloaded
+    // interpreter-forge's pins, sizes and measurements, so a model downloaded
     // for either app is the same files.
     public static let all: [ChatModel] = [
         // Twice the size of the others, and knows more: for a Mac with the
@@ -138,12 +138,12 @@ public struct EmbedderModel: Pinned {
 /// Models on this device: fetched file by file from their pinned revision into
 /// Application Support, sizes checked so a cut-off download is fetched again
 /// rather than loaded, and kept out of backups. For development, this
-/// checkout's models/ and translate-core's beside it count too.
+/// checkout's models/ and interpreter-forge's beside it count too.
 public enum ModelStore {
     static var directory: URL { Resources.support.appending(path: "Models") }
 
     static func folders(for model: some Pinned) -> [URL] {
-        [directory, Resources.checkout.appending(path: "models"), Resources.translateCore.appending(path: "models")]
+        [directory, Resources.checkout.appending(path: "models"), Resources.interpreterForge.appending(path: "models")]
             .map { $0.appending(path: model.id) }
     }
 

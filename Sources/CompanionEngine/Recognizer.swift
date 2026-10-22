@@ -1,7 +1,7 @@
 import FluidAudio
 import Foundation
 
-/// Parakeet Ultra through FluidAudio, as translate-core hears with it: the
+/// Parakeet Ultra through FluidAudio, as interpreter-forge hears with it: the
 /// Neural Engine, 25 European languages, punctuated. A turn is transcribed
 /// whole, once, when the person pauses; turns are short and Parakeet is fast,
 /// so there is nothing to gain from re-reading a moving window.

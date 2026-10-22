@@ -11,7 +11,7 @@ let package = Package(
         .library(name: "CompanionUI", targets: ["CompanionUI"]),
     ],
     dependencies: [
-        // The same pins translate-core's Interpreter builds with.
+        // The same pins interpreter-forge's Interpreter builds with.
         .package(url: "https://github.com/FluidInference/FluidAudio.git", exact: "0.17.7"),
         .package(url: "https://github.com/ml-explore/mlx-swift-lm.git", exact: "3.32.3"),
         .package(url: "https://github.com/huggingface/swift-transformers", exact: "1.3.5"),
