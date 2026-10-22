@@ -85,6 +85,9 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
+# The licence travels with the app.
+cp "$ROOT/LICENSE" "$ROOT/THIRD_PARTY_NOTICES.md" "$APP/Contents/Resources/"
+
 codesign --force --deep -s - "$APP" >/dev/null
 codesign --verify --deep --strict "$APP"
 echo "built: $APP  ($CONF, $bundles resource bundles, $(du -sh "$APP" | cut -f1))"
