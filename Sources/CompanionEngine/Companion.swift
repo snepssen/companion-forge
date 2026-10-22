@@ -227,10 +227,16 @@ public final class Companion {
     }
 
     private func loadBrain() async throws {
-        guard let directory = Resources.models.location(of: model) else {
+        let directory: URL
+        #if DEBUG
+        guard let found = Resources.models.location(of: model) else {
             phase = .needsModel
             return
         }
+        directory = found
+        #else
+        directory = try ModelStore.release(at: try ModelStore.sharedRoot()).require(model)
+        #endif
         phase = .loading("Loading \(model.name)…")
         face.set(.waking, at: Duplex.now)
         defer { face.set(.idle, at: Duplex.now) }
@@ -242,14 +248,26 @@ public final class Companion {
         phase = .ready
     }
 
-    public func isDownloaded(_ model: ChatModel) -> Bool { Resources.models.isDownloaded(model) }
+    public func isDownloaded(_ model: ChatModel) -> Bool {
+        #if DEBUG
+        Resources.models.isDownloaded(model)
+        #else
+        do {
+            return try ModelStore.release(at: try ModelStore.sharedRoot()).isDownloaded(model)
+        } catch {
+            return false
+        }
+        #endif
+    }
 
-    /// Switch to `model`, downloading it first if need be.
+    /// Switch to `model`, downloading it first if need be. A Release build
+    /// never downloads: a missing model is named with the path it expected.
     public func use(_ model: ChatModel) async {
         stop()
         self.model = model
         UserDefaults.standard.set(model.id, forKey: "model")
         do {
+            #if DEBUG
             if !Resources.models.isDownloaded(model) {
                 downloading = (model, 0)
                 try await Resources.models.download(model) { [weak self] progress in
@@ -257,6 +275,9 @@ public final class Companion {
                 }
                 downloading = nil
             }
+            #else
+            _ = try ModelStore.release(at: try ModelStore.sharedRoot()).require(model)
+            #endif
             if recognizer != nil {
                 try await loadBrain()
                 if listensWhenReady { await start() }

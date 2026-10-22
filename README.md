@@ -324,6 +324,31 @@ next launch finds the old paths gone. A copy that does not check out is
 thrown away and the original kept, so a launch that stops halfway tries
 again next time.
 
+## Shared models
+
+A Release build looks for language models and the embedder only in the shared
+folder. It does not download, move, or delete them. If a model is missing, the
+message names the path it expected. A Debug build is unchanged:
+`~/Library/Application Support/Companion/Models/<id>/`, then this checkout's
+`models/<id>/`, including a symlink left by `scripts/fetch-models.sh`, and it
+can still download.
+
+| | |
+|---|---|
+| macOS (the app is not sandboxed) | `~/Library/Application Support/snepssen/models/<id>/` |
+| Linux | `$XDG_DATA_HOME/snepssen/models/<id>/`, or `~/.local/share/snepssen/models/<id>/` when that variable is unset |
+| iOS | `models/<id>/` inside the `group.com.snepssen.models` container |
+
+The `<id>` directories this app expects:
+
+- `qwen3-8b-4bit`
+- `gemma-4-e4b-it-4bit`
+- `qwen3-4b-instruct-2507-4bit`
+- `gemma-4-e2b-it-4bit`
+- `bge-small-en-v1.5`
+
+The polyglot voice and espeak-ng data stay inside the app. Silero VAD stays a bundled file. Speech recognition is Parakeet Ultra through FluidAudio (`AsrModels.download`), and voiceprints are CAM++ through FluidAudio (`DiarizerModels.downloadIfNeeded`). Both use FluidAudio's own cache, not this folder.
+
 ## Build
 
     scripts/fetch-models.sh        # Silero VAD, and links to shared models when they're next door
@@ -336,15 +361,16 @@ voice-polyglot's newest export where it is beside this checkout, else its
 latest GitHub Release, checked against the release's SHA256SUMS and fetched
 again when a newer one is out. No separate English voice is fetched. The
 first build also fetches English Wiktionary's extract (523 MB) and cuts the
-dictionary from it. The language model is downloaded from the app's settings
-into `~/Library/Application Support/Companion/Models`. Where interpreter-forge's
-`models/` sits beside this checkout — or `WORKSHOP_ROOT` names the folder that
-holds both — `scripts/fetch-models.sh` symlinks each model the store doesn't
-already have, so the gigabytes stay where they are. One build is enough: the
-app and `ccrun` find them after that, including when Finder launches the app.
-A model already in the store is left as it is. A machine without
-interpreter-forge downloads as usual. `swift run cccheck` holds the model-free
-parts to their cases in seconds.
+dictionary from it. The language model is not bundled. A Debug build downloads
+it from Settings into `~/Library/Application Support/Companion/Models`, or
+finds it in this checkout's `models/`. Where interpreter-forge's `models/`
+sits beside this checkout — or `WORKSHOP_ROOT` names the folder that holds
+both — `scripts/fetch-models.sh` symlinks each model that Debug store doesn't
+already have, so the gigabytes stay where they are. A Debug launch finds those
+links. A model already in that store is left as it is. A Release build
+(`./build.sh`, and the iOS build) does not download, move, or delete models:
+it reads only the shared folder in [Shared models](#shared-models).
+`swift run cccheck` holds the model-free parts to their cases in seconds.
 
 The iPhone and iPad app is the same engine and views (`iOS/`, generated
 with xcodegen as interpreter-forge's is):

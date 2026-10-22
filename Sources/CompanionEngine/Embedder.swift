@@ -16,9 +16,16 @@ public actor Embedder {
 
     private let context: EmbedderModelContext
 
-    /// Load it, downloading it first (134 MB) if it isn't here.
+    /// Load it. A Debug build downloads it first (134 MB) when it isn't here.
+    /// A Release build only reads the shared folder, and names that path when
+    /// the files are missing.
     public static func load(progress: @escaping @Sendable (Double) -> Void = { _ in }) async throws -> Embedder {
-        let directory = try await Resources.models.download(model, progress: progress)
+        let directory: URL
+        #if DEBUG
+        directory = try await Resources.models.download(model, progress: progress)
+        #else
+        directory = try ModelStore.release(at: try ModelStore.sharedRoot()).require(model)
+        #endif
         let context = try await EmbedderModelFactory.shared.load(from: directory, using: #huggingFaceTokenizerLoader())
         return Embedder(context)
     }
