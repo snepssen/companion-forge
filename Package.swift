@@ -18,6 +18,8 @@ let package = Package(
         .package(url: "https://github.com/huggingface/swift-huggingface", exact: "1.0.0"),
         .package(url: "https://github.com/microsoft/onnxruntime-swift-package-manager", from: "1.20.0"),
         .package(url: "https://github.com/snepssen/voice-core", from: "1.0.3"),
+        // NSException to NSError, for AVAudioEngine, which raises instead of throwing.
+        .package(url: "https://github.com/snepssen/speech-core", from: "0.1.0"),
     ],
     targets: [
         // Everything decided without a model: when a turn has ended, what the
@@ -26,13 +28,12 @@ let package = Package(
         .target(name: "CompanionCore"),
         // Never links a model; `swift run cccheck` stays fast and runs anywhere.
         .executableTarget(name: "cccheck", dependencies: ["CompanionCore"]),
-        // NSException to NSError, for AVAudioEngine, which raises instead of throwing.
-        .target(name: "ObjCExceptions"),
         // The models and the live loop: Silero VAD and Parakeet (ONNX,
         // FluidAudio), the language model and the memory's embedder (MLX),
         // the voice (voice-core's Piper), one echo-cancelled audio engine.
         .target(name: "CompanionEngine", dependencies: [
-            "CompanionCore", "ObjCExceptions",
+            "CompanionCore",
+            .product(name: "ObjCExceptions", package: "speech-core"),
             .product(name: "VoiceCore", package: "voice-core"),
             .product(name: "FluidAudio", package: "FluidAudio"),
             .product(name: "MLXLLM", package: "mlx-swift-lm"),
