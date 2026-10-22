@@ -1,5 +1,6 @@
 import CompanionCore
 import Foundation
+import SampleBuffer
 import SileroVAD
 
 /// What the loop tells the app.

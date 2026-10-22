@@ -1,6 +1,7 @@
 import CompanionCore
 import Foundation
 import Observation
+import SampleBuffer
 import SileroVAD
 
 /// Everything the app shows and controls, on the main actor. The Mac app and
