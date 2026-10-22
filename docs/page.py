@@ -508,13 +508,17 @@ PAGE = {
                     "a newer one is out. No separate English voice is fetched. "
                     "The first build also fetches English Wiktionary's "
                     "extract, 523 MB, and cuts the dictionary from it. The "
-                    "language model is downloaded from Settings. Set "
-                    "<span class=\"mono\">WORKSHOP_ROOT</span> to the folder that "
-                    "holds the workshop checkouts, and one already in "
-                    "interpreter-forge's <span class=\"mono\">models/</span> is used "
-                    "as it is.",
+                    "language model is downloaded from Settings into "
+                    "Application Support. Where interpreter-forge's "
+                    "<span class=\"mono\">models/</span> sits beside this checkout, "
+                    "or <span class=\"mono\">WORKSHOP_ROOT</span> names the folder "
+                    "that holds both, the fetch script symlinks each model the "
+                    "store doesn't already have, so the gigabytes stay where "
+                    "they are. One build is enough: the app finds them after "
+                    "that. A model already in the store is left as it is. A "
+                    "machine without interpreter-forge downloads as usual.",
                 ]},
-                {"kind": "raw", "html": """  <pre class="code">scripts/fetch-models.sh <span class="c"># Silero VAD, once, from the Silero repository</span>
+                {"kind": "raw", "html": """  <pre class="code">scripts/fetch-models.sh <span class="c"># Silero VAD, and links to shared models</span>
 ./build.sh               <span class="c"># checks, then Companion.app and ccrun</span>
 swift run cccheck        <span class="c"># the model-free parts, held to their cases</span>
 
