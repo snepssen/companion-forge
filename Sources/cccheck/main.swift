@@ -147,6 +147,14 @@ check("a price is said amount first", Speakable.currency("$4.99") == "4 dollars 
     && Speakable.currency("$4.05") == "4 dollars oh 5" && Speakable.currency("$1,250") == "1,250 dollars"
     && Speakable.currency("$3.14159") == "3.14159 dollars" && Speakable.currency("a $ in code") == "a $ in code"
     && Speakable.currency("from $1 to €2.50.") == "from 1 dollar to 2 euros 50.")
+check("a question is given a little more time", QuestionTime.scale == 1.24
+    && QuestionTime.scale(for: "You are coming with me tonight?", in: "You are coming with me tonight?", last: true) == QuestionTime.scale
+    && QuestionTime.scale(for: "You are coming with me tonight.", in: "You are coming with me tonight.", last: true) == 1
+    && QuestionTime.scale(for: "Beep! You booped me!", in: "Beep! You booped me!", last: true) == 1)
+check("only the part that asks is slowed", QuestionTime.scale(for: "Is it", in: "Is it “micul dejun”?", last: false) == 1
+    && QuestionTime.scale(for: "micul dejun", in: "Is “micul dejun” breakfast?", last: false) == 1
+    && QuestionTime.scale(for: "breakfast?", in: "Is “micul dejun” breakfast?", last: true) == QuestionTime.scale
+    && QuestionTime.scale(for: "micul dejun", in: "Is it “micul dejun”?", last: true) == QuestionTime.scale)
 
 // MARK: echo
 
@@ -401,6 +409,15 @@ check("timed by the voice's own frames", mouthSpans.map { spans in
 } ?? false)
 let estimated = Phonemes.spans(laid, frames: Phonemes.estimatedFrames(laid), seconds: 1)
 check("without the voice's timings, the shapes are still there", estimated?.map(\.viseme) == [.mm, .ah])
+let slower = Phonemes.spans(laid, frames: Phonemes.estimatedFrames(laid), seconds: QuestionTime.scale)
+check("a slower question moves the mouth with the clip", slower.map { question in
+    guard let estimated else { return false }
+    return zip(estimated, question).allSatisfy { statement, asked in
+        statement.viseme == asked.viseme
+            && near(asked.start, statement.start * QuestionTime.scale, 1e-6)
+            && near(asked.end, statement.end * QuestionTime.scale, 1e-6)
+    }
+} ?? false)
 check("frames that don't line up are not used", Phonemes.spans(laid, frames: [1, 2], seconds: 1) == nil)
 var lipping = FacePerformance(origin: 0)
 lipping.say([VisemeSpan(0.0, 0.2, .mm), VisemeSpan(0.2, 0.6, .ah)], at: 10)
