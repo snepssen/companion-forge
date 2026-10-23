@@ -21,7 +21,7 @@ let package = Package(
         // Silero VAD, the microphone's sample window, and where models are kept.
         // The weights and the catalogue stay in the app. macOS and Linux Release
         // read only the shared folder. iOS keeps its own store.
-        .package(url: "https://github.com/snepssen/speech-core", from: "0.4.1"),
+        .package(url: "https://github.com/snepssen/speech-core", from: "0.5.0"),
         // CryptoKit on Apple platforms; the same API from swift-crypto elsewhere,
         // so `swift run cccheck` is not tied to a Mac.
         .package(url: "https://github.com/apple/swift-crypto.git", exact: "4.5.2"),
@@ -49,6 +49,7 @@ let package = Package(
             .product(name: "SileroVAD", package: "speech-core"),
             .product(name: "SampleBuffer", package: "speech-core"),
             .product(name: "ModelStore", package: "speech-core"),
+            .product(name: "PromptCache", package: "speech-core"),
             .product(name: "VoiceCore", package: "voice-core"),
             .product(name: "FluidAudio", package: "FluidAudio"),
             .product(name: "MLXLLM", package: "mlx-swift-lm"),
