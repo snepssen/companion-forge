@@ -168,16 +168,10 @@
     </a>
     <div class="ecosystem-rail__jumps" role="navigation" aria-label="On this page">
       <a href="#turns">Turns</a>
-      <a href="#aloud">Out loud</a>
       <a href="#face">The face</a>
-      <a href="#room">The room</a>
-      <a href="#memory">Memory</a>
-      <a href="#person">Whose voice</a>
       <a href="#serious">When it's serious</a>
-      <a href="#languages">Languages</a>
-      <a href="#measured">Measured</a>
       <a href="#get">Get it</a>
-      <a href="#limits">Untried</a>
+      <a href="#in-depth">How it works</a>
       <a href="#with">Beside it</a>
       <a href="#contact">Contact</a>
     </div>
@@ -212,7 +206,7 @@
 
 <div class="wrap">
 <header id="top" class="mast">
-  <span class="badge"><span class="dot"></span>Mac · iPhone · iPad</span>
+  <span class="badge"><span class="dot"></span>macOS · iPhone · iPad · GPL-3.0</span>
   <h1>companion-forge</h1>
   <p class="subhead">A companion you talk with out loud, with a protogen visor for a face. It listens, waits until you have finished rather than until a timer runs out, answers in a voice, and learns how you pause. It is one person's companion: it knows their voice, keeps a diary of their days, and catches up on what they told it. Everything runs locally, and what it remembers is encrypted on the device.</p>
   <div class="headmeta">
@@ -247,15 +241,6 @@ dictionary       English Wiktionary, cut down to SQLite</pre>
   <p>The reply is drafted while you are still pausing, as soon as the pause is long enough to be worth a guess: transcribed, written and turned into speech, but held. If you carry on, it is thrown away. If the pause runs to the learned wait, what is ready plays at once. Most of the model's time is spent inside the silence you were leaving anyway.</p>
 </section>
 
-<section id="aloud">
-  <p class="eyebrow">Speaking out loud</p>
-  <h2>The microphone and the voice share one engine</h2>
-  <p>On an iPhone or iPad, Apple's voice processing is on, which cancels the voice's echo. It can only subtract what it plays itself, so nothing is played any other way. On a Mac it is not used. On the M1, on 2026-10-20, its microphone side delivered nothing at all, whatever devices it was pointed at, so the microphone is taken as it is. The checks below keep the voice out, and the first words of a turn are also checked against the end of the last reply.</p>
-  <p>Some echo always gets through, so talking over a reply has to pass two checks. It has to sound like confident speech for 0.35 seconds. Then it is compared two ways: by its words, because the reply's own voice coming back says the words being said, and by its level. The companion knows what it played, learns how loud that comes back in this room, and a person talking over it is louder than twice that. Either check can call it echo. Only something that passes both stops the reply, and then only the part actually said is kept.</p>
-  <h3>Where the voice sits</h3>
-  <p>With the spatial voice on, which it is in Settings by default, the voice is placed half a metre in front of you and a little below, where a phone or tablet held at the chest is. On AirPods that track the head, on iOS 18 and macOS 15 and later, it stays there when you turn your head. On speakers it sounds as before. If that path will not start on a device, it falls back to the plain voice and says so. It has not yet been heard on AirPods.</p>
-</section>
-
 <section id="face">
   <p class="eyebrow">The face</p>
   <h2>Protoke's visor, drawn as an LED panel</h2>
@@ -267,17 +252,49 @@ dictionary       English Wiktionary, cut down to SQLite</pre>
   <p>Settings has the visor's colour and style, an LED panel or Protoke's smooth outlines, the model, echo cancellation, what it remembers and what it has learned about your pauses. The speech bubble shows the whole conversation.</p>
 </section>
 
-<section id="room">
-  <p class="eyebrow">In the room</p>
-  <h2>It looks at whoever is speaking, and lags when you move it</h2>
+<section id="serious">
+  <p class="eyebrow">When it's serious</p>
+  <h2>It stays, and it says so plainly</h2>
+  <p>If what they say sounds like they might be thinking about suicide or hurting themselves, the reply follows what crisis lines train their volunteers to do rather than what makes a product feel covered: stay, listen, take it seriously, ask directly, and don't judge, argue, minimise, joke or tell them what to do. Asking does not put the idea there. Clear words get all of that. Words that might only mean a bad day (&ldquo;I can't cope anymore&rdquo;) get a gentle &ldquo;are you okay? Like, really?&rdquo;.</p>
+  <p>In the first reply it mentions, once, the national line where they are. Twenty-four countries' lines, checked on 2026-10-21 against Wikipedia's list and findahelpline.com, with the emergency number, as something for them and not a way of ending the conversation. It keeps talking for as long as they want. If two replies go by and the model still has not said it, the companion says it itself. Numbers are read digit by digit. Where it cannot be sure of a line, it points to findahelpline.com. The next day it asks how they are doing, not how it went.</p>
+</section>
+
+<section id="get">
+  <p class="eyebrow">Getting it</p>
+  <h2>Built from this checkout</h2>
+  <p>The package resolves from this checkout, plus voice-core by URL. Nothing else has to sit beside it. The voice the build bundles is voice-polyglot's snepssen, English included: its newest export where that checkout is beside this one, otherwise its latest GitHub release, checked against the release's SHA256SUMS and fetched again when a newer one is out. No separate English voice is fetched. The first build also fetches English Wiktionary's extract, 523 MB, and cuts the dictionary from it. The language model is downloaded from Settings into Application Support. Where interpreter-forge's <span class="mono">models/</span> sits beside this checkout, or <span class="mono">WORKSHOP_ROOT</span> names the folder that holds both, the fetch script symlinks each model the store doesn't already have, so the gigabytes stay where they are. One build is enough: the app finds them after that. A model already in the store is left as it is. A machine without interpreter-forge downloads as usual.</p>
+  <pre class="code">scripts/fetch-models.sh <span class="c"># Silero VAD, and links to shared models</span>
+./build.sh               <span class="c"># checks, then Companion.app and ccrun</span>
+swift run cccheck        <span class="c"># the model-free parts, held to their cases</span>
+
+iOS/build-ios.sh         <span class="c"># build, install on a connected iPhone or iPad</span>
+iOS/build-ios.sh --no-install</pre>
+  <p>The iPhone and iPad app is the same engine and views, generated with xcodegen as interpreter-forge's is. It offers the models that fit beside recognition, the embedder and the voice: Qwen3 4B or Gemma 4 E2B on an 8 GB iPhone, with the increased memory entitlement, and Gemma 4 E4B from 12 GB. It listens while it is on screen. Leaving the app stops it and writes the conversation up, and coming back starts it again. The screen stays on while it is in front. MLX needs a real GPU, so there is no Simulator build. It has run on an iPhone 17 and an iPad with M4.</p>
+</section>
+
+<section id="in-depth" class="folds">
+  <p class="eyebrow">In depth</p>
+  <h2>How it works</h2>
+  <details class="fold" id="aloud">
+    <summary><span class="fold__title">The microphone and the voice share one engine</span><span class="fold__teaser">One audio engine plays the voice and hears the room, so the echo canceller can subtract what it says, and why a Mac differs.</span></summary>
+    <div class="fold__body">
+  <p>On an iPhone or iPad, Apple's voice processing is on, which cancels the voice's echo. It can only subtract what it plays itself, so nothing is played any other way. On a Mac it is not used. On the M1, on 2026-10-20, its microphone side delivered nothing at all, whatever devices it was pointed at, so the microphone is taken as it is. The checks below keep the voice out, and the first words of a turn are also checked against the end of the last reply.</p>
+  <p>Some echo always gets through, so talking over a reply has to pass two checks. It has to sound like confident speech for 0.35 seconds. Then it is compared two ways: by its words, because the reply's own voice coming back says the words being said, and by its level. The companion knows what it played, learns how loud that comes back in this room, and a person talking over it is louder than twice that. Either check can call it echo. Only something that passes both stops the reply, and then only the part actually said is kept.</p>
+  <h3>Where the voice sits</h3>
+  <p>With the spatial voice on, which it is in Settings by default, the voice is placed half a metre in front of you and a little below, where a phone or tablet held at the chest is. On AirPods that track the head, on iOS 18 and macOS 15 and later, it stays there when you turn your head. On speakers it sounds as before. If that path will not start on a device, it falls back to the plain voice and says so. It has not yet been heard on AirPods.</p>
+    </div>
+  </details>
+  <details class="fold" id="room">
+    <summary><span class="fold__title">It looks at whoever is speaking, and lags when you move it</span><span class="fold__teaser">It looks at whoever is talking, through the front camera if you turn that on, and its head turns a little after its eyes.</span></summary>
+    <div class="fold__body">
   <p>The face looks straight at them while it listens, mostly at them while it answers, and only glances while it thinks. Its head turns a little after its eyes. The front camera does this if you turn on &ldquo;Look at whoever is talking&rdquo; in Settings, which is off by default. Vision finds the faces and their lips about ten times a second. The one whose mouth keeps opening and shutting is talking, and with nobody talking it looks at the nearest face. Each picture is looked at and let go. On a Mac it uses the built-in camera, never a virtual one. This works with the echo canceller on.</p>
   <p>On an iPhone or iPad with the echo canceller off, and headphones, the level difference between the front microphones' two sides says left or right. The canceller gives one channel, so out loud this is the camera's job. A Mac's microphone is one channel. <span class="mono">ccrun --from-right</span> speaks from one side of a stereo microphone and then the other: the face turned to 0.84 across, then to &minus;0.84. Neither the camera nor the phone's stereo microphones have been tried on a device yet. If the face turns the wrong way, the picture or the microphone is mirrored.</p>
   <p>The face hangs behind the glass on a spring. Move the phone and it lags and swings back; turn it and the face tilts after it. On a Mac, which has no motion sensors, dragging the window does the same. Shake it hard for a second and its eyes go wide and it says so (&ldquo;Woah there! This ain't a rodeo. Slow down, please.&rdquo;, and four others in turn), at most once every 25 seconds, and never over somebody talking. Walking measures about 0.05 on the shake meter, a shake 2 and up, and it speaks at 1.2. With nothing else going on, its eyes look around: a quick dart, a hold of one to five seconds, often back to the middle. It looks at you while it listens and up to one side while it thinks.</p>
-</section>
-
-<section id="memory">
-  <p class="eyebrow">Memory</p>
-  <h2>Three layers, then a diary it keeps for itself</h2>
+    </div>
+  </details>
+  <details class="fold" id="memory">
+    <summary><span class="fold__title">Three layers, then a diary it keeps for itself</span><span class="fold__teaser">Conversations kept in full, short notes about the person, and then a diary it keeps for itself.</span></summary>
+    <div class="fold__body">
   <p class="lede">Conversations are kept in full, one JSON line per turn, and nothing is decided there about what matters. Notes are short sentences about the person, written by the language model once a conversation has been quiet for 45 seconds, or when Talk is stopped. Each note names the conversation and the turns it came from. Small talk, greetings and general questions are left out. A note that says the same thing as an older one replaces it.</p>
   <p>Notes about who you are, your name, your work, the people and pets in your life, go into every reply. A 4B model asked to mark these seldom does, so the companion recognises them too. Before each reply, what you just said is compared with the notes by meaning, using bge-small-en-v1.5 on MLX, 134 MB, downloaded on first launch. Apple's built-in sentence embedding ranked too poorly to use. A note must score 0.45 and be within 0.12 of the best match to be brought up. What comes to mind goes in just before your words, so the rest of the conversation stays in the model's cache. When you ask about the past, the original turns behind the best note are read back word for word.</p>
   <p>You can also ask out loud. &ldquo;Remember that my sister's birthday is on the third of March&rdquo; is noted at once, in your own words. &ldquo;Forget what I said about my sister's birthday&rdquo; finds the closest note and deletes it, and it says which it did. Both happen only once your turn is over, so a half-heard sentence changes nothing, and &ldquo;remember when&rdquo; is a question, not a command. Writing notes gives way to talking: it stops the moment you speak and picks up where it left off. Settings shows everything it remembers, with a button to forget any of it, or all of it and the logs.</p>
@@ -300,11 +317,11 @@ dictionary       English Wiktionary, cut down to SQLite</pre>
   <p>A note about something with a time on it becomes worth asking about once it has happened or had a few days to go somewhere: an evening thing the next morning, a weekend on the Monday, something under way after a few days. From the fourth turn, at a calm moment, it asks how it went. What they say is written up like anything else. Something they told it after the fact is not asked about again. Opening the app after two hours or more, it says hello: a few words that fit the time of day and how long it has been, with anything to catch up on in the same breath. The first time, it says it is glad to meet them and asks their name. Back within two hours, it says nothing.</p>
   <h3>Sealed on this device</h3>
   <p>What it remembers, the logs and the notes, the diary and the calendar, is sealed with AES-GCM under a key made on first use and kept in the Keychain on this device only. The key is never synced, and never put in a backup that could be restored elsewhere. On an iPhone or iPad the folder is also unreadable while the device is locked. A Mac relies on the sealing, and on FileVault. Files written before sealing still open, and are sealed the next time they are written. If the Keychain will not give the key, it says so and runs unsealed. It never makes a new key over an old one, which would lock away everything sealed with it.</p>
-</section>
-
-<section id="person">
-  <p class="eyebrow">Its person, and guests</p>
-  <h2>The first voice it hears for long enough is its person</h2>
+    </div>
+  </details>
+  <details class="fold" id="person">
+    <summary><span class="fold__title">The first voice it hears for long enough is its person</span><span class="fold__teaser">The first voice it hears for long enough is its person; anyone else is a guest, and is told nothing about them.</span></summary>
+    <div class="fold__body">
   <p>It keeps that voice as the average of CAM++ voiceprints, through FluidAudio, of what they have said, steadier the more it hears. Anyone else is a guest, met kindly, told nothing it knows about its person, and kept out of its memory. Each sees only their own side of the conversation. Told everything, it once told a guest about its person's nerves over a visit mentioned minutes before.</p>
   <div class="figure">
 <pre class="report mono">ccrun --speakers   thirteen system voices, eight clips each
@@ -314,27 +331,20 @@ dictionary       English Wiktionary, cut down to SQLite</pre>
   short turns (“yeah”, “hm”) decide nothing</pre>
 <p class="caption">Out of a conversation, only its person starts one. Left on all night, it had answered a television and the street. In a conversation, a guest joins in if they are about as near as its person. &ldquo;Know my voice&rdquo; is on by default. The model is fetched the first time, and without it everyone is its person, as before.</p>
 </div>
-</section>
-
-<section id="serious">
-  <p class="eyebrow">When it's serious</p>
-  <h2>It stays, and it says so plainly</h2>
-  <p>If what they say sounds like they might be thinking about suicide or hurting themselves, the reply follows what crisis lines train their volunteers to do rather than what makes a product feel covered: stay, listen, take it seriously, ask directly, and don't judge, argue, minimise, joke or tell them what to do. Asking does not put the idea there. Clear words get all of that. Words that might only mean a bad day (&ldquo;I can't cope anymore&rdquo;) get a gentle &ldquo;are you okay? Like, really?&rdquo;.</p>
-  <p>In the first reply it mentions, once, the national line where they are. Twenty-four countries' lines, checked on 2026-10-21 against Wikipedia's list and findahelpline.com, with the emergency number, as something for them and not a way of ending the conversation. It keeps talking for as long as they want. If two replies go by and the model still has not said it, the companion says it itself. Numbers are read digit by digit. Where it cannot be sure of a line, it points to findahelpline.com. The next day it asks how they are doing, not how it went.</p>
-</section>
-
-<section id="languages">
-  <p class="eyebrow">Other languages</p>
-  <h2>It looks the word up before it answers</h2>
+    </div>
+  </details>
+  <details class="fold" id="languages">
+    <summary><span class="fold__title">It looks the word up before it answers</span><span class="fold__teaser">Asked how to say a word, it looks it up first, in an offline dictionary of fifteen languages.</span></summary>
+    <div class="fold__body">
   <p>Asked how to say breakfast in Romanian, what &ldquo;köszönöm&rdquo; means, or &ldquo;and in Polish?&rdquo;, it looks the word up before the model answers, in an offline dictionary built from English Wiktionary, about 130 MB: translations between English and fifteen languages, and what English words mean. None of the three models knew &ldquo;micul dejun&rdquo;. Told nothing is there, it says it does not know rather than guess.</p>
   <p>A sentence can mix languages. A quoted word in the language they named, or one Apple's detector is sure of, and a whole sentence in another language, are each spoken in their own language by the polyglot voice and joined. English is that same voice. The eight languages the voice was trained on sound like it, and the rest go through plain espeak-ng, accent and all.</p>
   <h3>Who it is</h3>
   <p>Three personalities, chosen in Settings. Playful is the default: jokes, wordplay, plays along. Gentle is warm and calm. Deadpan is dry wit, delivered straight. Playful and deadpan drop the act when someone is having a hard time. Small models follow examples far better than descriptions, so each comes with a few lines in its voice. Told only the rules, it was correct and flat.</p>
-</section>
-
-<section id="measured">
-  <p class="eyebrow">Measured</p>
-  <h2>On an M1 with 16 GB, recognition and memory loaded</h2>
+    </div>
+  </details>
+  <details class="fold" id="measured">
+    <summary><span class="fold__title">On an M1 with 16 GB, recognition and memory loaded</span><span class="fold__teaser">Footprint and reply time on an M1 with recognition, the voice and memory all loaded.</span></summary>
+    <div class="fold__body">
   <p class="lede">Footprint is what iOS holds against an app, and on Apple silicon it includes what MLX keeps on the GPU. The run is <span class="mono">ccrun</span> on 2026-10-20, with recognition, the embedder, the voice and memory all loaded. The same day, with Gemma 4 E4B, the reply started 0.9 to 1.8 seconds after you stop talking.</p>
   <table>
     <thead><tr><th>Model</th><th>Footprint</th><th>At peak</th><th>From the end of your speech to the first sound</th></tr></thead>
@@ -347,27 +357,16 @@ dictionary       English Wiktionary, cut down to SQLite</pre>
   <p class="caption">Most of that time is the learned wait itself. A reply is drafted halfway into the pause, transcribed in 0.14 seconds, its first words written 0.3 seconds later and its first sentence voiced by about 0.8 seconds, so it is ready when the wait ends. The rest is a long first sentence.</p>
   <p>With the reply's echo leaking back at 0.05, roughly what voice processing leaves, echo measured 1.0 times its learned level and an interruption 11 to 18 times, so none was stopped falsely and the interruption was caught on its first check. At 0.3, barely cancelled, 17 echo fragments were let go and the interruption was caught on its third check.</p>
   <p>The model is shown the last 16 to 23 turns. The window moves 8 turns at a time rather than one, and after each reply the model reads the next prompt in while you talk. Sliding a turn at a time made every reply past the sixteenth re-read about 230 tokens, and its first words came 1.86 seconds after you finished instead of 0.31. With both changes, every turn of a 22-turn conversation started in 0.31 to 0.37 seconds.</p>
-</section>
-
-<section id="get">
-  <p class="eyebrow">Getting it</p>
-  <h2>Built from this checkout</h2>
-  <p>The package resolves from this checkout, plus voice-core by URL. Nothing else has to sit beside it. The voice the build bundles is voice-polyglot's snepssen, English included: its newest export where that checkout is beside this one, otherwise its latest GitHub release, checked against the release's SHA256SUMS and fetched again when a newer one is out. No separate English voice is fetched. The first build also fetches English Wiktionary's extract, 523 MB, and cuts the dictionary from it. The language model is downloaded from Settings into Application Support. Where interpreter-forge's <span class="mono">models/</span> sits beside this checkout, or <span class="mono">WORKSHOP_ROOT</span> names the folder that holds both, the fetch script symlinks each model the store doesn't already have, so the gigabytes stay where they are. One build is enough: the app finds them after that. A model already in the store is left as it is. A machine without interpreter-forge downloads as usual.</p>
-  <pre class="code">scripts/fetch-models.sh <span class="c"># Silero VAD, and links to shared models</span>
-./build.sh               <span class="c"># checks, then Companion.app and ccrun</span>
-swift run cccheck        <span class="c"># the model-free parts, held to their cases</span>
-
-iOS/build-ios.sh         <span class="c"># build, install on a connected iPhone or iPad</span>
-iOS/build-ios.sh --no-install</pre>
-  <p>The iPhone and iPad app is the same engine and views, generated with xcodegen as interpreter-forge's is. It offers the models that fit beside recognition, the embedder and the voice: Qwen3 4B or Gemma 4 E2B on an 8 GB iPhone, with the increased memory entitlement, and Gemma 4 E4B from 12 GB. It listens while it is on screen. Leaving the app stops it and writes the conversation up, and coming back starts it again. The screen stays on while it is in front. MLX needs a real GPU, so there is no Simulator build. It has run on an iPhone 17 and an iPad with M4.</p>
-</section>
-
-<section id="limits">
-  <p class="eyebrow">Honesty</p>
-  <h2>What has not been measured yet</h2>
+    </div>
+  </details>
+  <details class="fold" id="limits">
+    <summary><span class="fold__title">What has not been measured yet</span><span class="fold__teaser">Where it has run so far, and what is still to be measured on the phone, the tablet and AirPods.</span></summary>
+    <div class="fold__body">
   <p>It has run on an M1 Mac, an iPhone 17 and an iPad with M4. The numbers above are the Mac's. Memory and lag on the phone and the tablet are still to be measured the same way.</p>
   <p>The spatial voice has not been heard on AirPods. The camera, and the phone's stereo microphones, have not been tried on a device. Desktop beyond the Mac, and Android, are not this app: the README's next step is llama.cpp and sherpa-onnx, as interpreter-forge's Android port already runs Silero, Parakeet and Piper.</p>
   <p>The sad side of the visor is unused on purpose. If the Keychain will not give the key, it says so and runs unsealed rather than inventing a new key. Without the voiceprint model, everyone is treated as its person.</p>
+    </div>
+  </details>
 </section>
 
 <section id="with">
