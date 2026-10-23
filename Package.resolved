@@ -132,8 +132,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/snepssen/voice-core",
       "state" : {
-        "revision" : "d55f336b3518603de2f30e7a04d085aec40ebc5d",
-        "version" : "1.0.3"
+        "revision" : "c4dec646da7e182b763649383519aa9bef872be0",
+        "version" : "1.0.4"
       }
     },
     {
