@@ -43,7 +43,7 @@ PAGE = {
         "slug": "companion-forge",
         "name": "companion-forge",
         "title": "companion-forge",
-        "badge": "Mac · iPhone · iPad",
+        "license": "GPL-3.0",
         "fonts": FONTS,
         "description": (
             "A companion you talk with out loud, on a Mac, iPhone or iPad. "
@@ -114,6 +114,8 @@ PAGE = {
             "jump": "Out loud",
             "eyebrow": "Speaking out loud",
             "heading": "The microphone and the voice share one engine",
+            "fold": True,
+            "teaser": 'One audio engine plays the voice and hears the room, so the echo canceller can subtract what it says, and why a Mac differs.',
             "blocks": [
                 {"kind": "prose", "text": [
                     "On an iPhone or iPad, Apple's voice processing is on, "
@@ -202,6 +204,8 @@ PAGE = {
             "jump": "The room",
             "eyebrow": "In the room",
             "heading": "It looks at whoever is speaking, and lags when you move it",
+            "fold": True,
+            "teaser": 'It looks at whoever is talking, through the front camera if you turn that on, and its head turns a little after its eyes.',
             "blocks": [
                 {"kind": "prose", "text": [
                     "The face looks straight at them while it listens, "
@@ -250,6 +254,8 @@ PAGE = {
             "jump": "Memory",
             "eyebrow": "Memory",
             "heading": "Three layers, then a diary it keeps for itself",
+            "fold": True,
+            "teaser": 'Conversations kept in full, short notes about the person, and then a diary it keeps for itself.',
             "blocks": [
                 {"kind": "prose", "class": "lede", "text": [
                     "Conversations are kept in full, one JSON line per turn, "
@@ -356,6 +362,8 @@ PAGE = {
             "jump": "Whose voice",
             "eyebrow": "Its person, and guests",
             "heading": "The first voice it hears for long enough is its person",
+            "fold": True,
+            "teaser": 'The first voice it hears for long enough is its person; anyone else is a guest, and is told nothing about them.',
             "blocks": [
                 {"kind": "prose", "text": [
                     "It keeps that voice as the average of CAM++ voiceprints, "
@@ -418,6 +426,8 @@ PAGE = {
             "jump": "Languages",
             "eyebrow": "Other languages",
             "heading": "It looks the word up before it answers",
+            "fold": True,
+            "teaser": 'Asked how to say a word, it looks it up first, in an offline dictionary of fifteen languages.',
             "blocks": [
                 {"kind": "prose", "text": [
                     "Asked how to say breakfast in Romanian, what "
@@ -454,6 +464,8 @@ PAGE = {
             "jump": "Measured",
             "eyebrow": "Measured",
             "heading": "On an M1 with 16 GB, recognition and memory loaded",
+            "fold": True,
+            "teaser": 'Footprint and reply time on an M1 with recognition, the voice and memory all loaded.',
             "blocks": [
                 {"kind": "prose", "class": "lede", "text": [
                     "Footprint is what iOS holds against an app, and on "
@@ -544,6 +556,8 @@ iOS/build-ios.sh --no-install</pre>"""},
             "jump": "Untried",
             "eyebrow": "Honesty",
             "heading": "What has not been measured yet",
+            "fold": True,
+            "teaser": 'Where it has run so far, and what is still to be measured on the phone, the tablet and AirPods.',
             "blocks": [
                 {"kind": "prose", "text": [
                     "It has run on an M1 Mac, an iPhone 17 and an iPad with "
@@ -563,6 +577,7 @@ iOS/build-ios.sh --no-install</pre>"""},
                 ]},
             ],
         },
+        {"folds": True},
     ],
 
     "footer": [
