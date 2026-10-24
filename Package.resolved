@@ -51,8 +51,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/snepssen/speech-core",
       "state" : {
-        "revision" : "7815b8b1357fc2096fa7d22547b5b86dc824224a",
-        "version" : "0.5.0"
+        "revision" : "f49892307c22ca041dee143ad046b694c05ba8c1",
+        "version" : "0.5.1"
       }
     },
     {
