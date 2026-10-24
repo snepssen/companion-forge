@@ -31,7 +31,12 @@ public enum BundleMigration {
     /// Does nothing to Application Support. A second call finds the old paths
     /// gone and does nothing.
     @discardableResult
-    public static func migrateMacLibrary(home: URL = FileManager.default.homeDirectoryForCurrentUser,
+    ///
+    /// `home` defaults to `NSHomeDirectory()`, not
+    /// `FileManager.homeDirectoryForCurrentUser`: the second exists only on
+    /// macOS, and as a default argument it is compiled for iOS too, where it
+    /// broke the build. For the unsandboxed Mac app the two are the same folder.
+    public static func migrateMacLibrary(home: URL = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true),
                                          fileManager: FileManager = .default) -> [Outcome] {
         let library = home.appending(path: "Library")
         return [
