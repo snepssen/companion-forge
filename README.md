@@ -379,6 +379,19 @@ with xcodegen as interpreter-forge's is):
     iOS/build-ios.sh               # build, install on a connected iPhone or iPad
     iOS/build-ios.sh --no-install
 
+To put it on every iPhone and iPad you have paired at once (or only those
+named, by part of a name or model, or a UDID):
+
+    iOS/install-devices.sh                 # build once, install and launch on each
+    iOS/install-devices.sh --both          # interpreter-forge's app too, from beside this checkout
+    iOS/install-devices.sh --list          # which devices, without building
+
+It builds with `build-ios.sh --no-install` and then installs that app on
+each device with `devicectl`, ending with what went on where and what
+failed. Signed with a free (personal) team, an install stops opening seven
+days after it was built, so run it again within the week; it prints the
+date. Installing over the old app keeps what it remembers and its models.
+
 It offers the language models that fit beside recognition, the embedder and
 the voice: Qwen3 4B or Gemma 4 E2B on an 8 GB iPhone (with the increased
 memory entitlement), Gemma 4 E4B from 12 GB. It listens while it is on screen;
