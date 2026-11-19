@@ -109,7 +109,7 @@ MLX's `default.metallib` in the app.
 
 - Licence: MIT. Copyright (c) Microsoft Corporation.
 - Source: https://github.com/microsoft/onnxruntime
-- Swift package: https://github.com/microsoft/onnxruntime-swift-package-manager,
+- Swift package: https://github.com/snepssen/onnxruntime-swift-package-manager,
   version 1.24.2, revision `b7fb7f7dea8a2469e6335d95a61b8f36d0dc83b2`
 
 voice-core links it for Piper inference, and speech-core's SileroVAD

@@ -40,7 +40,7 @@
     {
       "identity" : "onnxruntime-swift-package-manager",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/microsoft/onnxruntime-swift-package-manager",
+      "location" : "https://github.com/snepssen/onnxruntime-swift-package-manager",
       "state" : {
         "revision" : "b7fb7f7dea8a2469e6335d95a61b8f36d0dc83b2",
         "version" : "1.24.2"
@@ -51,8 +51,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/snepssen/speech-core",
       "state" : {
-        "revision" : "f49892307c22ca041dee143ad046b694c05ba8c1",
-        "version" : "0.5.1"
+        "revision" : "72349a444eac0343baa7a326d6e458063cdfb780",
+        "version" : "0.5.2"
       }
     },
     {
@@ -132,8 +132,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/snepssen/voice-core",
       "state" : {
-        "revision" : "0582eb8a2b1bf340df1bc16fd632c525e0b34360",
-        "version" : "1.2.0"
+        "revision" : "bd6146643bc42bf1e568261a9aafc4157fc6c500",
+        "version" : "1.2.1"
       }
     },
     {
