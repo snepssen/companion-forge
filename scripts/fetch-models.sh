@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Silero VAD v5 into models/, from the Silero repository. A copy already in
-# this checkout is kept.
+# Silero VAD into models/: the v6.2 release, checked against its SHA-256 (the
+# file interpreter-forge pins too). A copy already in this checkout is kept if
+# it is that file, and replaced if it is any other.
 #
 # Language models are downloaded in the app, into
 # ~/Library/Application Support/Companion/Models/<id>/, the layout ModelStore
@@ -37,9 +38,14 @@ link_shared_models() {
 
 if [ "${FETCH_MODELS_LINK_ONLY:-}" != 1 ]; then
   VAD=models/silero_vad.onnx
-  if [ ! -s "$VAD" ]; then
+  VAD_URL=https://raw.githubusercontent.com/snakers4/silero-vad/v6.2/src/silero_vad/data/silero_vad.onnx
+  VAD_SHA=1a153a22f4509e292a94e67d6f9b85e8deb25b4988682b7e174c65279d8788e3
+  vad_ok() { [ -s "$1" ] && [ "$(shasum -a 256 "$1" | cut -d' ' -f1)" = "$VAD_SHA" ]; }
+  if ! vad_ok "$VAD"; then
     mkdir -p models
-    curl -fsSL -o "$VAD" https://raw.githubusercontent.com/snakers4/silero-vad/master/src/silero_vad/data/silero_vad.onnx
+    curl -fsSL -o "$VAD.part" "$VAD_URL" || { rm -f "$VAD.part"; echo "error: could not fetch Silero VAD v6.2" >&2; exit 1; }
+    vad_ok "$VAD.part" || { rm -f "$VAD.part"; echo "error: the fetched Silero VAD does not match its SHA-256" >&2; exit 1; }
+    mv "$VAD.part" "$VAD"
     echo "voice detector: $VAD"
   fi
 fi
