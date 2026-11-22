@@ -77,7 +77,7 @@ echo "$APP_NAME will go on:"
 awk -F'\t' '{printf "  %s (%s)%s\n", $2, $3, ($4 == "enabled" ? "" : "  developer mode: " $4)}' <<< "$DEVICES"
 [ "$LIST" = 1 ] && { [ -z "$NOMATCH" ]; exit; }
 
-echo "building $APP_NAME…"
+echo "building ${APP_NAME}…"
 if ! "$IOS/build-ios.sh" --no-install 2>&1 | tee "$TMP/build.log"; then
   BUILD_FAILED=1
   if grep -q "No Accounts" "$TMP/build.log"; then
@@ -97,13 +97,13 @@ if [ "$BUILD_FAILED" = 0 ]; then
   EXPIRES="$(security cms -D -i "$APP/embedded.mobileprovision" 2>/dev/null | plutil -extract ExpirationDate raw - 2>/dev/null || true)"
   while IFS=$'\t' read -r udid name model devmode; do
     label="$name ($model)"
-    echo "installing on $label…"
+    echo "installing on ${label}…"
     if ! xcrun devicectl device install app --device "$udid" "$APP" </dev/null >"$TMP/install.log" 2>&1; then
       reason="$(grep -iE 'error|fail|unable|not ' "$TMP/install.log" | head -3 | tr '\n' ' ')"
       case "$reason" in
-        *ocked*) reason="$reason— unlock it and run this again" ;;
-        *rofile*|*rovision*) reason="$reason— a device new to the team: in Xcode, open $APP_NAME.xcodeproj, pick the device and Run once" ;;
-        *aximum*|*limit*) reason="$reason— a free team allows three of your apps on a device; delete one you no longer use" ;;
+        *ocked*) reason="${reason}— unlock it and run this again" ;;
+        *rofile*|*rovision*) reason="${reason}— a device new to the team: in Xcode, open $APP_NAME.xcodeproj, pick the device and Run once" ;;
+        *aximum*|*limit*) reason="${reason}— a free team allows three of your apps on a device; delete one you no longer use" ;;
       esac
       [ "$devmode" = "enabled" ] || reason="$reason (Developer Mode is $devmode)"
       RESULTS+=("FAILED     $label: ${reason:-see xcrun devicectl device install app --device $udid}")

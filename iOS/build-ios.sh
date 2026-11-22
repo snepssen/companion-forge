@@ -24,6 +24,11 @@ cp "$REPO/models/silero_vad.onnx" "$REPO/models/dictionary.sqlite" Resources/
 echo "voice: $VOICE"
 
 xcodegen generate --quiet
+# The generated project is not in git, so Xcode would rebuild its pins from
+# whatever versions its package cache in .build last saw. Give it the package's
+# own Package.resolved instead: the same pins its tests and CI run against.
+SWIFTPM="Companion.xcodeproj/project.xcworkspace/xcshareddata/swiftpm"
+mkdir -p "$SWIFTPM" && cp "$IOS/../Package.resolved" "$SWIFTPM/Package.resolved"
 # Remove only the generated app, keeping dependency and build caches: a
 # no-op build must never leave an old bundle to install.
 APP="$IOS/.build/Build/Products/Release-iphoneos/Companion.app"
