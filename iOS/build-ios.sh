@@ -33,8 +33,13 @@ mkdir -p "$SWIFTPM" && cp "$IOS/../Package.resolved" "$SWIFTPM/Package.resolved"
 # no-op build must never leave an old bundle to install.
 APP="$IOS/.build/Build/Products/Release-iphoneos/Companion.app"
 rm -rf "$APP"
+# REGISTER_DEVICE=<udid> builds for that device and lets Xcode add it to the
+# team, so a fresh profile covers it (auto-refresh.sh uses it when the profile
+# leaves out a device); otherwise any device.
+DEST=(-destination 'generic/platform=iOS')
+[ -n "${REGISTER_DEVICE:-}" ] && DEST=(-destination "id=$REGISTER_DEVICE" -allowProvisioningDeviceRegistration)
 xcodebuild -project Companion.xcodeproj -scheme CompanionPhone -configuration Release \
-  -destination 'generic/platform=iOS' -derivedDataPath "$IOS/.build" \
+  "${DEST[@]}" -derivedDataPath "$IOS/.build" \
   -allowProvisioningUpdates -skipMacroValidation -skipPackagePluginValidation -quiet build
 [ -d "$APP" ] || { echo "build produced no app; refusing to install" >&2; exit 1; }
 [ -s "$APP/VoiceCore_VoiceCore.bundle/espeak-ng-data/phontab" ] \

@@ -57,6 +57,21 @@ app_expiry() {
   local iso; iso="$(security cms -D -i "$APP/embedded.mobileprovision" 2>/dev/null | plutil -extract ExpirationDate raw - 2>/dev/null || true)"
   [ -n "$iso" ] && iso_to_epoch "$iso" || echo 0
 }
+# Names of the reachable devices the built app's profile doesn't list.
+missing_devices() {
+  local listed d; listed="$(security cms -D -i "$APP/embedded.mobileprovision" 2>/dev/null \
+    | plutil -extract ProvisionedDevices json -o - - 2>/dev/null || true)"
+  for d in "${REACH[@]}"; do
+    case "$listed" in *"\"${d%%$'\t'*}\""*) ;; *) printf '%s ' "${d#*$'\t'}" ;; esac
+  done
+}
+missing_udid() {  # the first of them, by UDID
+  local listed d; listed="$(security cms -D -i "$APP/embedded.mobileprovision" 2>/dev/null \
+    | plutil -extract ProvisionedDevices json -o - - 2>/dev/null || true)"
+  for d in "${REACH[@]}"; do
+    case "$listed" in *"\"${d%%$'\t'*}\""*) ;; *) echo "${d%%$'\t'*}"; return ;; esac
+  done
+}
 state_expiry() { awk -F'\t' -v u="$1" '$1 == u {print $2; f=1} END {if (!f) print 0}' "$STATE"; }
 record() {  # udid, expiry, name
   { awk -F'\t' -v u="$1" '$1 != u' "$STATE"; printf '%s\t%s\t%s\n' "$1" "$2" "$3"; } > "$STATE.new" && mv "$STATE.new" "$STATE"
@@ -127,8 +142,8 @@ log "due: $(printf '%s\n' "${DUE[@]}" | cut -f2 | paste -sd, -); reachable: $(pr
 if [ -f "$STATE_DIR/build-failed" ] && [ $(( NOW - $(stat -f %m "$STATE_DIR/build-failed") )) -lt 7200 ]; then
   log "the last build failed under two hours ago; waiting"; exit 0
 fi
-build() {
-  if "$IOS/build-ios.sh" --no-install > "$TMP/build.log" 2>&1; then rm -f "$STATE_DIR/build-failed"; return 0; fi
+build() {  # [udid of a device to register]
+  if REGISTER_DEVICE="${1:-}" "$IOS/build-ios.sh" --no-install > "$TMP/build.log" 2>&1; then rm -f "$STATE_DIR/build-failed"; return 0; fi
   touch "$STATE_DIR/build-failed"
   local why="see $TMP/build.log"
   if grep -q "No Accounts" "$TMP/build.log"; then why="Xcode is signed out of your Apple ID: Xcode → Settings → Accounts"
@@ -142,17 +157,21 @@ log "building"
 build || exit 1
 EXP="$(app_expiry)"
 # Xcode reuses a free profile until it runs out, so an early rebuild can carry
-# the old expiry. Then set this app's cached profiles aside and build again,
-# so Xcode asks Apple for a fresh seven days.
-if [ $(( EXP - NOW )) -lt $(( FRESH_HOURS * 3600 )) ]; then
-  log "the build's signing runs out $(when "$EXP"); asking Xcode for a fresh profile"
+# the old expiry, or leave out a device registered after the profile was made
+# (which then refuses the app: "its integrity could not be verified"). Then set
+# this app's cached profiles aside and build again, so Xcode asks Apple for a
+# fresh seven days covering every device.
+MISSING="$(missing_devices)"
+if [ $(( EXP - NOW )) -lt $(( FRESH_HOURS * 3600 )) ] || [ -n "$MISSING" ]; then
+  if [ -n "$MISSING" ]; then log "the build's profile leaves out $MISSING; asking Xcode for a fresh profile"
+  else log "the build's signing runs out $(when "$EXP"); asking Xcode for a fresh profile"; fi
   ASIDE="$STATE_DIR/old-profiles/$(date +%Y%m%d-%H%M%S)"
   for p in "$PROFILES"/*.mobileprovision "$PROFILES"/*.provisionprofile; do
     [ -f "$p" ] || continue
     appid="$(security cms -D -i "$p" 2>/dev/null | plutil -extract Entitlements.application-identifier raw - 2>/dev/null || true)"
     case "$appid" in *."$BUNDLE_ID") mkdir -p "$ASIDE"; mv "$p" "$ASIDE/" ;; esac
   done
-  build || exit 1
+  build "$(missing_udid)" || exit 1
   EXP="$(app_expiry)"
   log "signing now runs out $(when "$EXP")"
 fi
