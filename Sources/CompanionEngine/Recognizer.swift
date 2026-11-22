@@ -7,10 +7,16 @@ import Foundation
 /// so there is nothing to gain from re-reading a moving window.
 public actor Recognizer {
     private let manager: AsrManager
+    /// FluidAudio downloads Parakeet Ultra from the newest Hugging Face commit;
+    /// this pins it, so a change upstream can't reach the app unnoticed. (Its
+    /// diarizer, used by Voiceprint, is already pinned inside FluidAudio.)
+    static let parakeetRepo = "FluidInference/parakeet-ultra-coreml"
+    static let parakeetRevision = "95eaa59a39d4394f047a4dc5cce480388a60d1b6"
 
     public static func load(progress: (@Sendable (Double) -> Void)? = nil) async throws -> Recognizer {
         var handler: ProgressHandler?
         if let progress { handler = { progress($0.fractionCompleted) } }
+        ModelRegistry.revisionOverrides[parakeetRepo] = parakeetRevision
         let directory = try await AsrModels.download(version: .ultra, progressHandler: handler)
         progress?(1)
         let models = try await AsrModels.load(from: directory, version: .ultra)
