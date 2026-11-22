@@ -108,9 +108,11 @@ MLX's `default.metallib` in the app.
 ## ONNX Runtime
 
 - Licence: MIT. Copyright (c) Microsoft Corporation.
-- Source: https://github.com/microsoft/onnxruntime
+- Source: Microsoft's github.com/microsoft/onnxruntime, gone since November
+  2026; the binaries linked here are Microsoft's 1.24.2 archives, unchanged
+  (same SHA-256), as attached to the Swift package's own release.
 - Swift package: https://github.com/snepssen/onnxruntime-swift-package-manager,
-  version 1.24.2, revision `b7fb7f7dea8a2469e6335d95a61b8f36d0dc83b2`
+  version 1.24.3, revision `6b1858c2125532ced5ef668c7e41b278825020e4`
 
 voice-core links it for Piper inference, and speech-core's SileroVAD
 links it to run the VAD model. The app links both.
