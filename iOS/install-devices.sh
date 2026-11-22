@@ -5,6 +5,7 @@
 #   iOS/install-devices.sh                    # every paired iPhone and iPad
 #   iOS/install-devices.sh "iPhone 17" iPad   # only these: part of a name or model, or a UDID
 #   iOS/install-devices.sh --both             # interpreter-forge's app too, from beside this checkout
+#   iOS/install-devices.sh --no-build iPhone  # install the app already built, without rebuilding
 #   iOS/install-devices.sh --list             # what it would install on, and stop
 #
 # The build is build-ios.sh's (the polyglot voice, VAD, the bundle and
@@ -23,12 +24,13 @@ APP="$IOS/.build/Build/Products/Release-iphoneos/$APP_NAME.app"
 WORKSHOP="${WORKSHOP_ROOT:-$(cd ../.. && pwd)}"
 SIBLING="$WORKSHOP/interpreter-forge/apple/iOS/install-devices.sh"
 
-BOTH=0 LIST=0 WANT=()
+BOTH=0 LIST=0 NOBUILD=0 WANT=()
 for arg in "$@"; do
   case "$arg" in
     --both) BOTH=1 ;;
     --list) LIST=1 ;;
-    -h|--help) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --no-build) NOBUILD=1 ;;
+    -h|--help) sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     -*) echo "unknown option $arg (see --help)" >&2; exit 2 ;;
     *) WANT+=("$arg") ;;
   esac
@@ -77,8 +79,11 @@ echo "$APP_NAME will go on:"
 awk -F'\t' '{printf "  %s (%s)%s\n", $2, $3, ($4 == "enabled" ? "" : "  developer mode: " $4)}' <<< "$DEVICES"
 [ "$LIST" = 1 ] && { [ -z "$NOMATCH" ]; exit; }
 
-echo "building ${APP_NAME}…"
-if ! "$IOS/build-ios.sh" --no-install 2>&1 | tee "$TMP/build.log"; then
+if [ "$NOBUILD" = 1 ]; then
+  [ -d "$APP" ] || { echo "error: --no-build, but there is no built app at $APP" >&2; exit 1; }
+  BUILD_FAILED=0
+  echo "installing the app already built ($APP)"
+elif echo "building ${APP_NAME}…" && ! "$IOS/build-ios.sh" --no-install 2>&1 | tee "$TMP/build.log"; then
   BUILD_FAILED=1
   if grep -q "No Accounts" "$TMP/build.log"; then
     BUILD_WHY="Xcode is signed out of your Apple ID, so it can't renew the free signing:"

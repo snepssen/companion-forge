@@ -385,12 +385,23 @@ named, by part of a name or model, or a UDID):
     iOS/install-devices.sh                 # build once, install and launch on each
     iOS/install-devices.sh --both          # interpreter-forge's app too, from beside this checkout
     iOS/install-devices.sh --list          # which devices, without building
+    iOS/install-devices.sh --no-build      # install the app already built
 
 It builds with `build-ios.sh --no-install` and then installs that app on
 each device with `devicectl`, ending with what went on where and what
 failed. Signed with a free (personal) team, an install stops opening seven
 days after it was built, so run it again within the week; it prints the
 date. Installing over the old app keeps what it remembers and its models.
+
+Or let this Mac do it, as interpreter-forge does: a launchd agent checks
+every half hour and, when a device's app has under three days left and the
+device answers (same Wi-Fi, or a cable), rebuilds, makes Xcode issue a fresh
+seven-day profile if it reused one about to run out, reinstalls, and posts a
+notification. It warns when a device can't be reached within a day of expiry.
+
+    iOS/auto-refresh-agent.sh install     # start it (again, after moving this checkout)
+    iOS/auto-refresh-agent.sh status      # when each device's app expires; the log's end
+    iOS/auto-refresh-agent.sh uninstall
 
 It offers the language models that fit beside recognition, the embedder and
 the voice: Qwen3 4B or Gemma 4 E2B on an 8 GB iPhone (with the increased
